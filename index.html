@@ -1,21 +1,30 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <meta charset="utf-8">
-        <link rel="stylesheet" href="./public/main.css">
-    </head>
-    <body>
-        <div id="root-window">
-            <div id="render-target"></div>
-        </div>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tower Defense WebGL</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; }
+        #score-board {
+            position: absolute; top: 10px; left: 10px; color: white;
+            font-family: Arial, sans-serif; font-size: 20px;
+            background: rgba(0, 0, 0, 0.5); padding: 10px; pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="score-board">Score: 0 | Cash: 100</div>
 
-        <script type="module">
-            import { createScene } from "./src/scene.js";
+    <script type="module">
+        import { createScene } from "./src/scene.js";
 
-            window.onload = () => {
-                window.scene = createScene();
-                window.scene.start();
-            }
-        </script>
-    </body>
+        // Wait for page to load, then start the game
+        window.onload = () => {
+            const game = createScene();
+            game.start();
+        };
+    </script>
+</body>
 </html>
