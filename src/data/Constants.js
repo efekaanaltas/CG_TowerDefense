@@ -1,0 +1,39 @@
+export const TILE_SIZE = 2;
+
+export const TOWER_TYPES = [
+    { name: "Turret", cost: 50, color: 0xFFFF00, range: 8, fireRate: 800, damage: 30, element: "physical", shotCount: 1, spread: 0 },
+    { name: "Shotgun", cost: 120, color: 0xFFA500, range: 6, fireRate: 1200, damage: 20, element: "physical", shotCount: 3, spread: 0.3 },
+    { name: "Pyro", cost: 200, color: 0xFF0000, range: 7, fireRate: 200, damage: 5, element: "fire", shotCount: 1, spread: 0 },
+    { name: "Cryo", cost: 150, color: 0x00FFFF, range: 10, fireRate: 1500, damage: 80, element: "ice", shotCount: 1, spread: 0 }
+];
+
+export const ENEMY_TYPES = [
+    { type: "normal", color: 0x888888, hp: 100, weakness: "none" },
+    { type: "ice_golem", color: 0x00FFFF, hp: 150, weakness: "fire" },
+    { type: "fire_imp", color: 0xFF4400, hp: 80, weakness: "ice" }
+];
+
+// Map: 0=Path, 1=Buildable, 2=Goal
+export const MAP_LAYOUT = [
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 2],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ];
+
+export const WAYPOINTS = [
+    { x: 0, z: 1 }, { x: 4, z: 1 }, { x: 4, z: 3 }, { x: 10, z: 3 },
+    { x: 10, z: 6 }, { x: 6, z: 6 }, { x: 6, z: 8 }, { x: 13, z: 8 },
+    { x: 13, z: 10 }, { x: 19, z: 10 }
+];
