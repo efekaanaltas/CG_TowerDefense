@@ -63,6 +63,18 @@ export class Game {
         const dirLight = new THREE.DirectionalLight(0xffffff, 2);
         dirLight.position.set(10, 20, 10);
         dirLight.castShadow = true;
+        //Setting up shadow camera properties
+        //Fixed the no shadows issue. 
+        //I changed the shadow map but even with size 4096 it is still pixelated. Will come back to this later.
+        dirLight.shadow.mapSize.set(4096, 4096);
+        dirLight.shadow.camera.near = 1;
+        dirLight.shadow.camera.far = 80;
+        const size = 40;
+        dirLight.shadow.camera.left = -size;
+        dirLight.shadow.camera.right = size;
+        dirLight.shadow.camera.top = size;
+        dirLight.shadow.camera.bottom = -size;
+        dirLight.shadow.bias = -0.0005;
         this.scene.add(dirLight);
 
         // World Generation
