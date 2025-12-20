@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { TILE_SIZE, MAP_LAYOUT, TOWER_TYPES, ENEMY_TYPES } from '../data/Constants.js';
+import { TILE_SIZE, MAP_LAYOUT, TOWER_TYPES, ENEMY_TYPES, WAVE_DATA } from '../data/Constants.js';
+import { MODEL_PATHS, INTERACTABLE_TYPES } from '../data/Constants.js';
 
 import { Player } from '../entities/Player.js';
 import { Enemy } from '../entities/Enemy.js';
 import { Building } from '../entities/Building.js';
 import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
+import { ResourceManager } from './ResourceManager.js';
+
 
 export class Game {
     constructor() {
@@ -18,6 +21,12 @@ export class Game {
         this.keys = { w: false, a: false, s: false, d: false };
         this.lastSpawnTime = 0;
         this.selectedTowerIndex = 0;
+        this.resourceManager = new ResourceManager();
+
+        this.currentWaveIndex = 0;      // Kaçıncı dalgadayız?
+        this.isWaveActive = false;      // Şu an savaş var mı?
+        this.spawnQueue = [];           // Doğmayı bekleyen düşman listesi
+        this.lastSpawnTime = 0;         // En son ne zaman düşman doğdu?
         
         // Entities Lists
         this.enemies = [];
@@ -28,7 +37,28 @@ export class Game {
         this.init();
     }
 
-    init() {
+    async init() {
+
+        this.injectUI();
+    
+        // 1. Loading Ekranını Göster (Basit bir text)
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'loading-screen';
+        loadingDiv.style = "position:absolute; top:0; left:0; width:100%; height:100%; background:#000; color:#fff; display:flex; justify-content:center; align-items:center; z-index:999; font-size:30px;";
+        loadingDiv.innerText = "LOADING ASSETS...";
+        document.body.appendChild(loadingDiv);
+
+        // 2. Modelleri Yükle
+        try {
+            await this.resourceManager.loadAll(MODEL_PATHS);
+            // Yükleme bitince Loading ekranını kaldır
+            document.body.removeChild(loadingDiv);
+        } catch (err) {
+            loadingDiv.innerText = "ERROR LOADING ASSETS";
+            console.error(err);
+            return; // Hata varsa oyunu başlatma
+        }
+
         // Scene Setup
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
@@ -63,18 +93,6 @@ export class Game {
         const dirLight = new THREE.DirectionalLight(0xffffff, 2);
         dirLight.position.set(10, 20, 10);
         dirLight.castShadow = true;
-        //Setting up shadow camera properties
-        //Fixed the no shadows issue. 
-        //I changed the shadow map but even with size 4096 it is still pixelated. Will come back to this later.
-        dirLight.shadow.mapSize.set(4096, 4096);
-        dirLight.shadow.camera.near = 1;
-        dirLight.shadow.camera.far = 80;
-        const size = 40;
-        dirLight.shadow.camera.left = -size;
-        dirLight.shadow.camera.right = size;
-        dirLight.shadow.camera.top = size;
-        dirLight.shadow.camera.bottom = -size;
-        dirLight.shadow.bias = -0.0005;
         this.scene.add(dirLight);
 
         // World Generation
@@ -88,8 +106,6 @@ export class Game {
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
         window.addEventListener('keyup', (e) => this.keys[e.key.toLowerCase()] = false);
 
-        // UI (Basit tutuldu)
-        this.injectUI();
         this.updateUI();
 
     }
@@ -177,6 +193,25 @@ export class Game {
         `;
         document.body.appendChild(goScreen);
         document.getElementById('btn-restart').onclick = () => { window.location.reload(); };
+
+        // --- NEXT WAVE BUTTON ---
+        const waveBtn = document.createElement('button');
+        waveBtn.id = 'btn-next-wave';
+        waveBtn.innerText = 'START WAVE 1'; // İlk başta 1. dalga yazar
+        waveBtn.style = `
+            position: absolute; bottom: 20px; right: 20px;
+            padding: 15px 30px; font-size: 20px; font-weight: bold;
+            background: #ffc107; border: none; border-radius: 5px;
+            cursor: pointer; z-index: 10; box-shadow: 0 4px #e0a800;
+            font-family: sans-serif; color: #000;
+        `;
+        
+        // Butona basınca dalgayı başlat
+        waveBtn.onclick = () => this.startNextWave();
+        
+        // Eğer oyun en başta "Start Game" ile başlıyorsa bu buton gizli başlayabilir, 
+        // startGame() içinde görünür yapabilirsin. Şimdilik görünür ekliyoruz.
+        document.body.appendChild(waveBtn);
     }
 
     updateTowerSelectionUI() {
@@ -203,6 +238,86 @@ export class Game {
         this.updateTowerSelectionUI(); // Seçimi görselleştir
         this.updateUI(); // Puanı yazdır
         this.animate(); // Sonsuz döngü başlasın!
+    }
+
+    updateEnemies(now, delta) {
+        const wave = WAVE_DATA[this.currentWaveIndex];
+
+        // Kuyrukta düşman varsa ve süre geldiyse doğur
+        if (this.isWaveActive && this.spawnQueue.length > 0) {
+            if (now - this.lastSpawnTime > wave.spawnDelay) {
+                const typeKey = this.spawnQueue.shift(); // En öndeki düşmanı al
+                this.spawnEnemy(typeKey);
+                this.lastSpawnTime = now;
+            }
+        }
+
+        // Dalga bitti mi? (Kuyruk boş ve sahnede düşman kalmadı)
+        if (this.isWaveActive && this.spawnQueue.length === 0 && this.enemies.length === 0) {
+            this.endWave();
+        }
+
+        // Mevcut düşmanları hareket ettir
+        for (let i = this.enemies.length - 1; i >= 0; i--) {
+            const enemy = this.enemies[i];
+            enemy.update(delta);
+
+            if (enemy.reachedEnd) {
+                this.scene.remove(enemy.mesh);
+                this.enemies.splice(i, 1);
+                this.lives--;
+                this.updateUI();
+                if (this.lives <= 0) this.endGame();
+            }
+        }
+    }
+
+    startNextWave() {
+        // Eğer dalga zaten sürüyorsa veya tüm dalgalar bittiyse işlem yapma
+        if (this.isWaveActive || this.currentWaveIndex >= WAVE_DATA.length) return;
+
+        const waveData = WAVE_DATA[this.currentWaveIndex];
+        this.spawnQueue = [];
+
+        // 1. Düşmanları listeye doldur
+        // Örn: { normal: 2, ice_golem: 1 } => ['normal', 'normal', 'ice_golem']
+        for (const [typeKey, count] of Object.entries(waveData.enemies)) {
+            for (let i = 0; i < count; i++) {
+                this.spawnQueue.push(typeKey);
+            }
+        }
+
+        // 2. Listeyi Karıştır (Shuffle) - Rastgele gelmeleri için
+        this.spawnQueue.sort(() => Math.random() - 0.5);
+
+        // 3. Dalgayı Aktif Et
+        this.isWaveActive = true;
+        
+        // 4. Butonu Gizle
+        const btn = document.getElementById('btn-next-wave');
+        if (btn) btn.style.display = 'none';
+    }
+
+    endWave() {
+        this.isWaveActive = false;
+        this.currentWaveIndex++; // Bir sonraki dalgaya geç
+
+        const btn = document.getElementById('btn-next-wave');
+        if (btn) {
+            // Oyun bitti mi kontrolü
+            if (this.currentWaveIndex >= WAVE_DATA.length) {
+                btn.innerText = "VICTORY! (Restart)";
+                btn.onclick = () => window.location.reload();
+                btn.style.background = "#28a745"; // Yeşil renk
+            } else {
+                btn.innerText = `START WAVE ${this.currentWaveIndex + 1}`;
+            }
+            btn.style.display = 'block'; // Butonu tekrar göster
+        }
+        
+        // İstersen dalga bitince oyuncuya bonus para ver
+        this.cash += 100;
+        this.updateUI();
     }
 
     onKeyDown(e) {
@@ -256,7 +371,7 @@ export class Game {
         if (this.cash >= typeInfo.cost) {
             this.cash -= typeInfo.cost;
             // Modüler yapıda Building sınıfını kullanıyoruz
-            const tower = new Building(this.scene, typeInfo, gridX, gridZ);
+            const tower = new Building(this.scene, this.resourceManager, typeInfo.modelScale, typeInfo, gridX, gridZ);
             this.towers.push(tower);
             this.updateUI();
         } else {
@@ -299,19 +414,29 @@ export class Game {
                 this.scene.add(tile);
             }
         }
-        
-        // Örnek bir interactable ekle
-        this.interactables.push(new Interactable(this.scene, 'Box', 2, 2));
+
+        const testObjects = [
+        { x: 2, y: 1, z: 10, typeIndex: 0 }
+    ];
+
+    testObjects.forEach(obj => {
+        const typeDef = INTERACTABLE_TYPES[obj.typeIndex];
+        const interactable = new Interactable(this.scene, this.resourceManager, typeDef, obj.x, obj.y, obj.z);
+        this.interactables.push(interactable);
+    });
+
     }
 
-    spawnEnemy() {
-        const typeDef = ENEMY_TYPES[Math.floor(Math.random() * ENEMY_TYPES.length)];
-        const enemy = new Enemy(this.scene, typeDef);
-        this.enemies.push(enemy);
+    spawnEnemy(typeKey) {
+        // String olarak gelen key'i (örn: "ice_golem"), ENEMY_TYPES dizisinde arayıp buluyoruz
+        const typeDef = ENEMY_TYPES.find(e => e.type === typeKey);
+
+        if (typeDef) {
+            // Enemy sınıfına direkt bulduğumuz objeyi gönderiyoruz (Senin Enemy.js yapına uygun)
+            const enemy = new Enemy(this.scene, typeDef);
+            this.enemies.push(enemy);
+        }
     }
-
-
-
 
     // --- Loop ---
     animate() {
@@ -342,9 +467,24 @@ export class Game {
         this.controls.update();
 
         // 2. Spawn Enemies
-        if (now - this.lastSpawnTime > 2000) {
-            this.spawnEnemy();
-            this.lastSpawnTime = now;
+        if (this.isWaveActive) {
+            const waveData = WAVE_DATA[this.currentWaveIndex];
+
+            // Kuyrukta hala düşman varsa ve süre dolduysa
+            if (this.spawnQueue.length > 0) {
+                if (now - this.lastSpawnTime > waveData.spawnDelay) {
+                    
+                    // Kuyruğun başından bir düşman tipi al
+                    const enemyType = this.spawnQueue.shift(); 
+                    this.spawnEnemy(enemyType);
+                    
+                    this.lastSpawnTime = now;
+                }
+            } 
+            // Kuyruk bitti VE sahnede hiç düşman kalmadıysa -> DALGA BİTTİ
+            else if (this.enemies.length === 0) {
+                this.endWave();
+            }
         }
 
         // 3. Enemies Update
