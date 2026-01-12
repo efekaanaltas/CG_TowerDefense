@@ -63,12 +63,16 @@ export const WAYPOINTS = [
 
 export const MODEL_PATHS = {
     'car': '/assets/Car.glb',
-    'tower_turret': '/assets/Tower-1.glb',
-    'tower_shotgun': '/assets/Tower-1.glb',
-    'tower_pyro': '/assets/Tower-1.glb',
-    'tower_cryo': '/assets/Tower-1.glb'
+    'sword': '/assets/Sword.glb',
+    'plant': '/assets/Plant.glb',
+    'tower_turret': '/assets/Turret.glb',
+    'tower_shotgun': '/assets/Shotgun.glb',
+    'tower_pyro': '/assets/Pyro.glb',
+    'tower_cryo': '/assets/Cryo.glb'
 };
 
 export const INTERACTABLE_TYPES = [
-    { type: 'Car', modelKey: 'car', scale: 0.6 }
+    { type: 'Car', modelKey: 'car', scale: 0.6 },
+    { type: 'Sword', modelKey: 'sword', scale: 2.5 },
+    { type: 'Plant', modelKey: 'plant', scale: 5 }
 ];

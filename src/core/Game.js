@@ -416,7 +416,9 @@ export class Game {
         }
 
         const testObjects = [
-        { x: 2, y: 1, z: 10, typeIndex: 0 }
+        { x: 2, y: 1, z: 10, typeIndex: 0 },
+        { x: 3, y: 1, z: 10, typeIndex: 1 },
+        { x: 4, y: 1, z: 10, typeIndex: 2 }
     ];
 
     testObjects.forEach(obj => {
