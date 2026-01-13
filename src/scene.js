@@ -272,6 +272,7 @@ export function createScene() {
         const geometry = new THREE.ConeGeometry(0.8, 2, 8);
         const material = new THREE.MeshStandardMaterial({ color: typeInfo.color });
         const tower = new THREE.Mesh(geometry, material);
+        this.shaderManager.applyCustomMaterial(tower);
         
         tower.position.set(x * TILE_SIZE, 1, z * TILE_SIZE);
         tower.castShadow = true;
@@ -334,6 +335,7 @@ function shootProjectile(tower, direction) {
         const geometry = new THREE.SphereGeometry(0.2, 8, 8);
         const material = new THREE.MeshBasicMaterial({ color: tower.userData.color }); 
         const bullet = new THREE.Mesh(geometry, material);
+        this.shaderManager.applyCustomMaterial(bullet);
         
         bullet.position.copy(tower.position);
         //bullet.position.y += 1.5; 
@@ -436,6 +438,7 @@ function applyDamage(enemy, bulletData) {
                 let material = type === 1 ? matBuildable : (type === 2 ? matGoal : matPath);
                 
                 const tile = new THREE.Mesh(geometry, material);
+                this.shaderManager.applyCustomMaterial(tile, material);
                 tile.position.set(col * TILE_SIZE, 0, row * TILE_SIZE);
                 tile.receiveShadow = true;
                 gridGroup.add(tile);
@@ -449,6 +452,7 @@ function applyDamage(enemy, bulletData) {
         const geometry = new THREE.BoxGeometry(1, 1, 1);
         const material = new THREE.MeshStandardMaterial({ color: 0x0000FF });
         player = new THREE.Mesh(geometry, material);
+        this.shaderManager.applyCustomMaterial(tile, material);
         player.position.set(2, 1, 2); // Safe spot
         player.castShadow = true;
         scene.add(player);
@@ -461,6 +465,7 @@ function applyDamage(enemy, bulletData) {
         const geometry = new THREE.SphereGeometry(0.6, 16, 16);
         const material = new THREE.MeshStandardMaterial({ color: typeDef.color });
         const enemy = new THREE.Mesh(geometry, material);
+        this.shaderManager.applyCustomMaterial(tile, material);
         
         const startNode = waypoints[0];
         enemy.position.set(startNode.x * TILE_SIZE, 1, startNode.z * TILE_SIZE);
