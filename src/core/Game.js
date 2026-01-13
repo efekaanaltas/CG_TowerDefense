@@ -29,6 +29,13 @@ export class Game {
         this.spawnQueue = [];           // Doğmayı bekleyen düşman listesi
         this.lastSpawnTime = 0;         // En son ne zaman düşman doğdu?
         
+        // Raycasting for mouse interaction
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.groundTiles = [];          // Store tile meshes for raycasting
+        this.ghostTower = null;         // Preview tower
+        this.lastHoveredTile = null;    // Track which tile we're hovering
+        
         // Entities Lists
         this.enemies = [];
         this.towers = [];
@@ -38,6 +45,7 @@ export class Game {
         // --- CAMERA STATE ---
         this.gameState = "PLAYING"; // "PLAYING", "TRANSITION", "CREDITS"
         this.isPaused = false;      // Oyunu durdurmak için
+        this.isMenuOpen = false;    // Dropdown menu açık mı?
         
         // Geçiş Değişkenleri
         this.transitionProgress = 0;
@@ -104,9 +112,35 @@ export class Game {
         // Lights
         const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
         this.scene.add(ambientLight);
+        
+        // Calculate map dimensions and center
+        const mapWidth = 20 * TILE_SIZE;   // 40 units
+        const mapDepth = 15 * TILE_SIZE;   // 30 units
+        const mapCenterX = (mapWidth - TILE_SIZE) / 2;  // 19
+        const mapCenterZ = (mapDepth - TILE_SIZE) / 2;  // 14
+        
         const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-        dirLight.position.set(10, 20, 10);
+        dirLight.position.set(mapCenterX, 30, mapCenterZ);
         dirLight.castShadow = true;
+        
+        // CRITICAL: Set light target to map center so shadow camera looks at the right place
+        dirLight.target.position.set(mapCenterX, 0, mapCenterZ);
+        this.scene.add(dirLight.target);  // Must add target to scene!
+        
+        // Shadow camera bounds (relative to target, not world origin)
+        const shadowMargin = 3;
+        dirLight.shadow.camera.left = -mapWidth / 2 - shadowMargin;
+        dirLight.shadow.camera.right = mapWidth / 2 + shadowMargin;
+        dirLight.shadow.camera.top = mapDepth / 2 + shadowMargin;
+        dirLight.shadow.camera.bottom = -mapDepth / 2 - shadowMargin;
+        dirLight.shadow.camera.near = 10;
+        dirLight.shadow.camera.far = 50;
+        
+        // High resolution shadow map
+        dirLight.shadow.mapSize.width = 4096;
+        dirLight.shadow.mapSize.height = 4096;
+        dirLight.shadow.bias = -0.0001;
+        
         this.scene.add(dirLight);
 
         // World Generation
@@ -120,6 +154,8 @@ export class Game {
         window.addEventListener('resize', () => this.onWindowResize());
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
         window.addEventListener('keyup', (e) => this.keys[e.key.toLowerCase()] = false);
+        window.addEventListener('click', (e) => this.onMouseClick(e));
+        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
 
         this.updateUI();
 
@@ -162,19 +198,36 @@ export class Game {
         };
 
 
-        // --- 1. Tower Selection Bar (Başlangıçta GİZLİ) ---
+        // --- 1. Dropdown Tower Menu (Başlangıçta GİZLİ) ---
+        // Dropdown Toggle Button
+        const dropdownBtn = document.createElement('button');
+        dropdownBtn.id = 'dropdown-toggle';
+        dropdownBtn.innerHTML = '🏗️ BUILD MENU';
+        dropdownBtn.style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 30px; font-size: 16px; font-weight: bold; background: rgba(0,150,0,0.8); color: white; border: 2px solid #00FF00; border-radius: 8px; cursor: pointer; z-index: 10; display: none; font-family: sans-serif;";
+        dropdownBtn.onclick = () => {
+            this.toggleBuildMenu();
+            dropdownBtn.blur(); // Remove focus to prevent space from re-triggering
+        };
+        document.body.appendChild(dropdownBtn);
+        
+        // Tower Selection Bar (Hidden by default)
         const bar = document.createElement('div');
-        bar.id = 'tower-bar'; // ID ekledik ki kolayca açıp kapatabilelim
-        bar.style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; gap: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; z-index: 10;";
+        bar.id = 'tower-bar';
+        bar.style = "position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%); display: none; gap: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 10; border: 2px solid #00FF00;";
         
         TOWER_TYPES.forEach((type, index) => {
             const btn = document.createElement('div');
             btn.innerHTML = `<b>${type.name}</b><br>$${type.cost}`;
-            btn.style = "color: white; background: #444; padding: 10px; cursor: pointer; border: 2px solid transparent; text-align: center; font-family: sans-serif; font-size: 12px; min-width: 60px; user-select: none;";
+            btn.style = "color: white; background: #444; padding: 10px; cursor: pointer; border: 2px solid transparent; text-align: center; font-family: sans-serif; font-size: 12px; min-width: 60px; user-select: none; transition: all 0.2s;";
             btn.id = `btn-tower-${index}`;
-            btn.onclick = () => {
+            btn.onmouseover = () => { if (btn.style.borderColor !== 'rgb(0, 255, 0)') btn.style.background = '#555'; };
+            btn.onmouseout = () => { if (btn.style.borderColor !== 'rgb(0, 255, 0)') btn.style.background = '#444'; };
+            btn.onclick = (e) => {
+                e.stopPropagation(); // Prevent event bubbling
                 this.selectedTowerIndex = index;
                 this.updateTowerSelectionUI();
+                // Remove focus from button to prevent space key from re-triggering
+                btn.blur();
             };
             bar.appendChild(btn);
         });
@@ -251,18 +304,21 @@ export class Game {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; font-size: 20px;">
                 <div style="font-weight: bold; color: #aaa;">W, A, S, D</div>
                 <div>Move Character</div>
+                
+                <div style="font-weight: bold; color: #aaa;">B</div>
+                <div>Toggle Build Menu</div>
+
+                <div style="font-weight: bold; color: #aaa;">Mouse Click</div>
+                <div>Place Tower (menu must be open)</div>
 
                 <div style="font-weight: bold; color: #aaa;">SPACE</div>
-                <div>Build / Sell Tower</div>
+                <div>Sell Tower (stand on tower)</div>
 
                 <div style="font-weight: bold; color: #aaa;">M</div>
                 <div>Show / Hide Credits</div>
 
                 <div style="font-weight: bold; color: #aaa;">H</div>
                 <div>Show / Hide Help</div>
-                
-                <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
-                <div>Select Tower Type</div>
                 
                 <div style="font-weight: bold; color: #aaa;">Mouse Right</div>
                 <div>Rotate Camera</div>
@@ -280,6 +336,196 @@ export class Game {
         // Seçili olanı yeşil yap
         const activeBtn = document.getElementById(`btn-tower-${this.selectedTowerIndex}`);
         if(activeBtn) activeBtn.style.borderColor = "#00FF00";
+        
+        // Recreate ghost tower when selection changes
+        if (this.isMenuOpen) {
+            this.createGhostTower();
+        }
+    }
+
+    toggleBuildMenu() {
+        this.isMenuOpen = !this.isMenuOpen;
+        const towerBar = document.getElementById('tower-bar');
+        const dropdownBtn = document.getElementById('dropdown-toggle');
+        
+        if (this.isMenuOpen) {
+            towerBar.style.display = 'flex';
+            dropdownBtn.innerHTML = '✖ CLOSE MENU';
+            dropdownBtn.style.background = 'rgba(150,0,0,0.8)';
+            dropdownBtn.style.borderColor = '#FF0000';
+            this.showGrid();
+            this.createGhostTower();
+        } else {
+            towerBar.style.display = 'none';
+            dropdownBtn.innerHTML = '🏗️ BUILD MENU';
+            dropdownBtn.style.background = 'rgba(0,150,0,0.8)';
+            dropdownBtn.style.borderColor = '#00FF00';
+            this.hideGrid();
+            this.hideGhostTower();
+        }
+    }
+
+    showGrid() {
+        // Create grid lines if they don't exist
+        if (!this.gridHelper) {
+            const gridGroup = new THREE.Group();
+            
+            // Grid lines should be at tile edges, not centers
+            // Tiles are centered at (col*TILE_SIZE, row*TILE_SIZE) and extend ±TILE_SIZE/2
+            // So edges are at (col - 0.5) * TILE_SIZE
+            
+            // Create vertical lines (along Z axis) - 21 lines for 20 columns
+            for (let col = 0; col <= 20; col++) {
+                const xPos = (col - 0.5) * TILE_SIZE;
+                const points = [
+                    new THREE.Vector3(xPos, 0.3, -TILE_SIZE / 2),
+                    new THREE.Vector3(xPos, 0.3, 15 * TILE_SIZE - TILE_SIZE / 2)
+                ];
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x00FF00, 
+                    transparent: true, 
+                    opacity: 0.5 
+                });
+                const line = new THREE.Line(geometry, material);
+                gridGroup.add(line);
+            }
+            
+            // Create horizontal lines (along X axis) - 16 lines for 15 rows
+            for (let row = 0; row <= 15; row++) {
+                const zPos = (row - 0.5) * TILE_SIZE;
+                const points = [
+                    new THREE.Vector3(-TILE_SIZE / 2, 0.3, zPos),
+                    new THREE.Vector3(20 * TILE_SIZE - TILE_SIZE / 2, 0.3, zPos)
+                ];
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x00FF00, 
+                    transparent: true, 
+                    opacity: 0.5 
+                });
+                const line = new THREE.Line(geometry, material);
+                gridGroup.add(line);
+            }
+            
+            this.gridHelper = gridGroup;
+            this.scene.add(this.gridHelper);
+        } else {
+            this.gridHelper.visible = true;
+        }
+    }
+
+    hideGrid() {
+        if (this.gridHelper) {
+            this.gridHelper.visible = false;
+        }
+    }
+
+    createGhostTower() {
+        if (this.ghostTower) {
+            this.hideGhostTower();
+        }
+
+        const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
+        const modelKey = typeInfo.modelKey;
+        
+        // Clone the model for ghost preview
+        const model = this.resourceManager.getModel(modelKey);
+        const ghostModel = model.clone();
+        
+        // Make it semi-transparent
+        ghostModel.traverse((child) => {
+            if (child.isMesh) {
+                child.material = child.material.clone();
+                child.material.transparent = true;
+                child.material.opacity = 0.5;
+                child.material.depthWrite = false;
+            }
+        });
+
+        ghostModel.scale.set(typeInfo.modelScale, typeInfo.modelScale, typeInfo.modelScale);
+        ghostModel.visible = false;
+        
+        this.ghostTower = ghostModel;
+        this.scene.add(this.ghostTower);
+    }
+
+    hideGhostTower() {
+        if (this.ghostTower) {
+            this.scene.remove(this.ghostTower);
+            this.ghostTower = null;
+        }
+    }
+
+    updateGhostTower(gridX, gridZ, isValid) {
+        if (!this.ghostTower) return;
+
+        // Position ghost at grid location
+        this.ghostTower.position.set(gridX * TILE_SIZE, 1, gridZ * TILE_SIZE);
+        this.ghostTower.visible = true;
+
+        // Change color based on validity
+        this.ghostTower.traverse((child) => {
+            if (child.isMesh) {
+                if (isValid) {
+                    child.material.color.setHex(0x00FF00); // Green for valid
+                } else {
+                    child.material.color.setHex(0xFF0000); // Red for invalid
+                }
+            }
+        });
+    }
+
+    onMouseMove(e) {
+        if (!this.isMenuOpen || this.isGameOver) {
+            if (this.ghostTower) this.ghostTower.visible = false;
+            return;
+        }
+
+        // Calculate mouse position
+        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        // Update raycaster
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Check intersection with ground tiles
+        const intersects = this.raycaster.intersectObjects(this.groundTiles);
+
+        if (intersects.length > 0) {
+            const hoveredTile = intersects[0].object;
+            const gridX = hoveredTile.userData.gridX;
+            const gridZ = hoveredTile.userData.gridZ;
+
+            // Check if we need to recreate ghost (tower type changed)
+            const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
+            if (this.ghostTower && this.ghostTower.userData.towerType !== this.selectedTowerIndex) {
+                this.createGhostTower();
+            }
+            if (this.ghostTower) {
+                this.ghostTower.userData.towerType = this.selectedTowerIndex;
+            }
+
+            // Check if placement is valid
+            const tileType = hoveredTile.userData.tileType;
+            const existingTower = this.towers.find(t => {
+                const tPos = t.mesh.position;
+                return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
+            });
+
+            const isValid = tileType === 1 && !existingTower && this.cash >= typeInfo.cost;
+            
+            this.updateGhostTower(gridX, gridZ, isValid);
+        } else {
+            // Hide ghost when not hovering over tiles
+            if (this.ghostTower) this.ghostTower.visible = false;
+        }
+    }
+
+    hideGrid() {
+        if (this.gridHelper) {
+            this.gridHelper.visible = false;
+        }
     }
 
     startGame() {
@@ -288,10 +534,10 @@ export class Game {
         if (startScreen) startScreen.style.display = 'none';
 
         // 2. Oyun UI elemanlarını görünür yap
-        const towerBar = document.getElementById('tower-bar');
+        const dropdownBtn = document.getElementById('dropdown-toggle');
         const scoreBoard = document.getElementById('score-board');
         
-        if (towerBar) towerBar.style.display = 'flex';
+        if (dropdownBtn) dropdownBtn.style.display = 'block';
         if (scoreBoard) scoreBoard.style.display = 'block';
 
         // 3. Oyun döngüsünü başlat
@@ -393,9 +639,12 @@ export class Game {
 
         this.keys[key] = true;
         
-        // Normal oyun akışında Space'e basılırsa
+        // 'B' tuşu: Build menüsünü aç/kapa
+        if (key === 'b') this.toggleBuildMenu();
+        
+        // Space artık sadece kule silmek için (oyuncu üzerindeyse)
         if (key === ' ') {
-            this.handleSpaceInteraction();
+            this.handleSpaceSellTower();
         }
 
         if (key === 'h') {
@@ -409,6 +658,51 @@ export class Game {
             } else if (this.gameState === "CREDITS") {
                 this.startTransitionToGame();
             }
+        }
+    }
+
+    onMouseClick(e) {
+        // Ignore clicks on UI elements
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'DIV' && e.target.id.includes('btn')) {
+            return;
+        }
+        
+        if (this.isGameOver || !this.isMenuOpen) return;
+
+        // Calculate mouse position in normalized device coordinates (-1 to +1)
+        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        // Update raycaster
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Check intersection with ground tiles
+        const intersects = this.raycaster.intersectObjects(this.groundTiles);
+        
+
+        if (intersects.length > 0) {
+            const clickedTile = intersects[0].object;
+            const gridX = clickedTile.userData.gridX;
+            const gridZ = clickedTile.userData.gridZ;
+            
+            // Attempt to build tower at clicked position
+            this.attemptBuild(gridX, gridZ);
+        }
+    }
+
+    handleSpaceSellTower() {
+        const pos = this.player.getGridPosition();
+        
+        // Check if there's a tower where the player is standing
+        const existingTower = this.towers.find(t => {
+            const tPos = t.mesh.position;
+            return Math.round(tPos.x / TILE_SIZE) === pos.x && Math.round(tPos.z / TILE_SIZE) === pos.z;
+        });
+
+        if (existingTower) {
+            // Start delete confirmation
+            this.pendingDeleteTower = existingTower;
+            document.getElementById('delete-overlay').style.display = 'block';
         }
     }
 
@@ -436,6 +730,16 @@ export class Game {
         if (gridZ < 0 || gridZ >= MAP_LAYOUT.length || gridX < 0 || gridX >= MAP_LAYOUT[0].length) return;
         if (MAP_LAYOUT[gridZ][gridX] !== 1) {
             console.log("Buraya inşa edilemez!");
+            return;
+        }
+
+        // Check if there's already a tower at this position
+        const existingTower = this.towers.find(t => {
+            const tPos = t.mesh.position;
+            return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
+        });
+
+        if (existingTower) {
             return;
         }
 
@@ -540,7 +844,11 @@ export class Game {
                 const tile = new THREE.Mesh(geometry, material);
                 tile.position.set(col * TILE_SIZE, 0, row * TILE_SIZE);
                 tile.receiveShadow = true;
+                tile.userData.gridX = col;
+                tile.userData.gridZ = row;
+                tile.userData.tileType = type;
                 this.scene.add(tile);
+                this.groundTiles.push(tile);
             }
         }
 
