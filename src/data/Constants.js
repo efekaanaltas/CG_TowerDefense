@@ -14,26 +14,36 @@ export const ENEMY_TYPES = [
 ];
 
 export const WAVE_DATA = [
-    { 
-        enemies: { normal: 5, ice_golem: 0, fire_imp: 0 }, 
-        spawnDelay: 1200
-    },
-    { 
-        enemies: { normal: 8, ice_golem: 3, fire_imp: 0 }, 
-        spawnDelay: 1000 
-    },
-    { 
-        enemies: { normal: 10, ice_golem: 5, fire_imp: 1 }, 
-        spawnDelay: 900 
-    },
-    { 
-        enemies: { normal: 5, ice_golem: 10, fire_imp: 2 }, 
-        spawnDelay: 800 
-    },
-    { 
-        enemies: { normal: 15, ice_golem: 15, fire_imp: 5 }, 
-        spawnDelay: 700 
-    }
+    // --- TIER 1: BAŞLANGIÇ (Multiplier: 1.0) ---
+    { enemies: { normal: 5, ice_golem: 0, fire_imp: 0 }, spawnDelay: 1500, healthMultiplier: 1.0 },
+    { enemies: { normal: 8, ice_golem: 1, fire_imp: 0 }, spawnDelay: 1400, healthMultiplier: 1.0 },
+    { enemies: { normal: 10, ice_golem: 3, fire_imp: 0 }, spawnDelay: 1300, healthMultiplier: 1.0 },
+    { enemies: { normal: 12, ice_golem: 5, fire_imp: 1 }, spawnDelay: 1200, healthMultiplier: 1.0 },
+    { enemies: { normal: 15, ice_golem: 8, fire_imp: 2 }, spawnDelay: 1100, healthMultiplier: 1.0 },
+
+    // --- TIER 2: ORTA SEVİYE (Multiplier: 1.5) ---
+    { enemies: { normal: 15, ice_golem: 5, fire_imp: 5 }, spawnDelay: 1000, healthMultiplier: 1.5 },
+    { enemies: { normal: 18, ice_golem: 8, fire_imp: 6 }, spawnDelay: 950, healthMultiplier: 1.5 },
+    { enemies: { normal: 20, ice_golem: 10, fire_imp: 8 }, spawnDelay: 900, healthMultiplier: 1.5 },
+    { enemies: { normal: 22, ice_golem: 12, fire_imp: 10 }, spawnDelay: 850, healthMultiplier: 1.5 },
+    { enemies: { normal: 25, ice_golem: 15, fire_imp: 12 }, spawnDelay: 800, healthMultiplier: 1.5 },
+
+    // --- TIER 3: ZOR SEVİYE (Multiplier: 2.5) ---
+    { enemies: { normal: 20, ice_golem: 20, fire_imp: 10 }, spawnDelay: 750, healthMultiplier: 2.5 },
+    { enemies: { normal: 20, ice_golem: 25, fire_imp: 12 }, spawnDelay: 700, healthMultiplier: 2.5 },
+    { enemies: { normal: 15, ice_golem: 30, fire_imp: 15 }, spawnDelay: 650, healthMultiplier: 2.5 },
+    { enemies: { normal: 10, ice_golem: 35, fire_imp: 20 }, spawnDelay: 600, healthMultiplier: 2.5 },
+    { enemies: { normal: 30, ice_golem: 20, fire_imp: 25 }, spawnDelay: 550, healthMultiplier: 2.5 },
+
+    // --- TIER 4: KAOS (Multiplier: 4.0) ---
+    { enemies: { normal: 40, ice_golem: 20, fire_imp: 20 }, spawnDelay: 500, healthMultiplier: 4.0 },
+    { enemies: { normal: 45, ice_golem: 25, fire_imp: 25 }, spawnDelay: 450, healthMultiplier: 4.0 },
+    { enemies: { normal: 50, ice_golem: 30, fire_imp: 30 }, spawnDelay: 400, healthMultiplier: 4.0 },
+    { enemies: { normal: 60, ice_golem: 40, fire_imp: 40 }, spawnDelay: 350, healthMultiplier: 4.0 },
+    { enemies: { normal: 100, ice_golem: 50, fire_imp: 50 }, spawnDelay: 200, healthMultiplier: 5.0 },
+
+    // Final Wave
+    { enemies: { normal: 1, ice_golem: 1, fire_imp: 1 }, spawnDelay: 6000, healthMultiplier: 30.0 }
 ];
 
 // Map: 0=Path, 1=Buildable, 2=Goal
