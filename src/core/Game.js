@@ -9,7 +9,7 @@ import { Building } from '../entities/Building.js';
 import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
-
+import { ShaderManager } from './ShaderManager.js';
 
 export class Game {
     constructor() {
@@ -34,6 +34,10 @@ export class Game {
         this.towers = [];
         this.projectiles = [];
         this.interactables = [];
+
+        this.scene = new THREE.Scene();
+        this.shaderManager = new ShaderManager(this.scene);
+        this.resourceManager = new ResourceManager(this.shaderManager);
 
         // --- CAMERA STATE ---
         this.gameState = "PLAYING"; // "PLAYING", "TRANSITION", "CREDITS"
@@ -74,7 +78,6 @@ export class Game {
         }
 
         // Scene Setup
-        this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -108,6 +111,13 @@ export class Game {
         dirLight.position.set(10, 20, 10);
         dirLight.castShadow = true;
         this.scene.add(dirLight);
+
+        const textureLoader = new THREE.TextureLoader();
+        const skyTexture = textureLoader.load('/assets/skybox.jpg'); // Make sure you have this file!
+        skyTexture.mapping = THREE.EquirectangularReflectionMapping;
+        skyTexture.colorSpace = THREE.SRGBColorSpace; // Ensure colors look correct
+        this.scene.background = skyTexture;
+        this.scene.environment = skyTexture;
 
         // World Generation
         this.createLevel();
@@ -538,6 +548,7 @@ export class Game {
                 let type = MAP_LAYOUT[row][col];
                 let material = type === 1 ? matBuildable : (type === 2 ? matGoal : matPath);
                 const tile = new THREE.Mesh(geometry, material);
+                this.shaderManager.applyCustomMaterial(tile);
                 tile.position.set(col * TILE_SIZE, 0, row * TILE_SIZE);
                 tile.receiveShadow = true;
                 this.scene.add(tile);
@@ -669,6 +680,10 @@ export class Game {
             
             // Target değiştiği için update şart
             this.controls.update(); 
+            
+            if (this.shaderManager) {
+                this.shaderManager.update(now); 
+            }
             
             this.renderer.render(this.scene, this.camera);
             return;

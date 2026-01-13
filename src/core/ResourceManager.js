@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export class ResourceManager {
-    constructor() {
+    constructor(shaderManager) {
         this.assets = new Map(); // Yüklenen modelleri burada saklayacağız
         this.loader = new GLTFLoader();
+        this.shaderManager = shaderManager; 
     }
 
     // Tüm modelleri yükleyen fonksiyon
@@ -16,6 +17,9 @@ export class ResourceManager {
                     // Gölgeleri aç
                     gltf.scene.traverse((child) => {
                         if (child.isMesh) {
+                            if (this.shaderManager) {
+                                this.shaderManager.applyCustomMaterial(child);
+                            }
                             child.castShadow = true;
                             child.receiveShadow = true;
                         }
