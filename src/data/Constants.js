@@ -1,10 +1,10 @@
 export const TILE_SIZE = 2;
 
 export const TOWER_TYPES = [
-    { name: "Turret", modelKey: 'tower_turret', modelScale: 7, cost: 50, color: 0xFFFF00, range: 8, fireRate: 800, damage: 30, element: "physical", shotCount: 1, spread: 0 },
-    { name: "Shotgun", modelKey: 'tower_shotgun', modelScale: 7, cost: 120, color: 0xFFA500, range: 6, fireRate: 1200, damage: 20, element: "physical", shotCount: 3, spread: 0.3 },
-    { name: "Pyro", modelKey: 'tower_pyro', modelScale: 7, cost: 200, color: 0xFF0000, range: 7, fireRate: 200, damage: 5, element: "fire", shotCount: 1, spread: 0 },
-    { name: "Cryo", modelKey: 'tower_cryo', modelScale: 7, cost: 150, color: 0x00FFFF, range: 10, fireRate: 1500, damage: 80, element: "ice", shotCount: 1, spread: 0 }
+    { name: "Turret", modelKey: 'tower_turret', shouldRotate: true, modelScale: 9, cost: 50, color: 0xFFFF00, range: 8, fireRate: 800, damage: 30, element: "physical", shotCount: 1, spread: 0 },
+    { name: "Shotgun", modelKey: 'tower_shotgun', shouldRotate: true, modelScale: 7, cost: 120, color: 0xFFA500, range: 6, fireRate: 1200, damage: 20, element: "physical", shotCount: 3, spread: 0.3 },
+    { name: "Pyro", modelKey: 'tower_pyro', shouldRotate: false, modelScale: 0.08, cost: 200, color: 0xFF0000, range: 7, fireRate: 200, damage: 5, element: "fire", shotCount: 1, spread: 0 },
+    { name: "Cryo", modelKey: 'tower_cryo', shouldRotate: false, modelScale: 0.075, cost: 150, color: 0x00FFFF, range: 10, fireRate: 1500, damage: 80, element: "ice", shotCount: 1, spread: 0 }
 ];
 
 export const ENEMY_TYPES = [
@@ -68,7 +68,9 @@ export const MODEL_PATHS = {
     'tower_turret': '/assets/Turret.glb',
     'tower_shotgun': '/assets/Shotgun.glb',
     'tower_pyro': '/assets/Pyro.glb',
-    'tower_cryo': '/assets/Cryo.glb'
+    'tower_cryo': '/assets/Cryo.glb',
+    'player': '/assets/Player.glb',
+    'credits': '/assets/Names.glb'
 };
 
 export const INTERACTABLE_TYPES = [

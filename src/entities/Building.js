@@ -6,18 +6,34 @@ export class Building {
         this.scene = scene;
         this.stats = { ...typeInfo };
         this.cooldown = 0;
+        this.shouldRotate = typeInfo.shouldRotate || false;
         
         this.mesh = resourceManager.getModel(typeInfo.modelKey);
         
-        this.mesh.position.set(x * TILE_SIZE, 0, z * TILE_SIZE);
-        
+        this.mesh.position.set(x * TILE_SIZE, 0.2, z * TILE_SIZE);
         this.mesh.scale.set(scale, scale, scale); 
+
+        // --- ANIMASYON AYARI ---
+        this.mixer = null;
+        
+        // ResourceManager'da yaptığımız hile sayesinde .animations artık burada erişilebilir
+        if (this.mesh.animations && this.mesh.animations.length > 0) {
+            this.mixer = new THREE.AnimationMixer(this.mesh);
+            
+            // İlk animasyonu bul ve başlat
+            const clip = this.mesh.animations[0];
+            const action = this.mixer.clipAction(clip);
+            action.play();
+        }
 
         scene.add(this.mesh);
     }
 
-    update(enemies, now, addProjectileCallback) {
-        if (now - this.cooldown < this.stats.fireRate) return;
+    update(enemies, now, delta, addProjectileCallback) {
+        if (this.mixer) {
+            this.mixer.update(delta);
+        }
+        if (now - this.cooldown < this.stats.fireRate && !this.shouldRotate) return;
 
         let closestEnemy = null;
         let minDist = Infinity;
@@ -31,12 +47,21 @@ export class Building {
         }
 
         if (closestEnemy) {
-            // Merminin kulenin tepesinden çıkması için mesh pozisyonuna biraz Y ekleyebilirsin
-            const firePos = this.mesh.position.clone();
-            firePos.y += 2.8;
 
-            this.fire(closestEnemy, addProjectileCallback, firePos);
-            this.cooldown = now;
+            if (this.shouldRotate) {
+                const targetPos = closestEnemy.mesh.position.clone();
+                targetPos.y = this.mesh.position.y;
+                this.mesh.lookAt(targetPos);
+                this.mesh.rotateY(Math.PI/2);
+            }
+
+            
+            if (now - this.cooldown >= this.stats.fireRate){
+                const firePos = this.mesh.position.clone();
+                firePos.y += 2.8;
+                this.fire(closestEnemy, addProjectileCallback, firePos);
+                this.cooldown = now;
+            }
         }
     }
 

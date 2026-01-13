@@ -2,97 +2,54 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 export class ResourceManager {
-    constructor(shaderManager) { // Inject ShaderManager
-        this.assets = new Map();
+    constructor() {
+        this.assets = new Map(); // Yüklenen modelleri burada saklayacağız
         this.loader = new GLTFLoader();
-        this.shaderManager = shaderManager; 
     }
 
+    // Tüm modelleri yükleyen fonksiyon
     async loadAll(paths) {
         const promises = [];
-
         for (const [key, url] of Object.entries(paths)) {
             const p = new Promise((resolve, reject) => {
-                this.loader.load(
-                    url,
-                    (gltf) => {
-                        // Traverse and convert materials immediately
-                        gltf.scene.traverse((child) => {
-                            if (child.isMesh) {
-                                // Apply our custom shader!
-                                if (this.shaderManager) {
-                                    this.shaderManager.applyCustomMaterial(child);
-                                }
-                                child.castShadow = true;
-                                child.receiveShadow = true;
-                            }
-                        });
-                        
-                        this.assets.set(key, gltf.scene);
-                        //this.debugGLTF(key);
-                        console.log(`Model loaded and shader applied: ${key}`);
-                        resolve();
-                    },
-                    undefined,
-                    (error) => {
-                        console.error(`Error loading ${key}:`, error);
-                        reject(error);
-                    }
-                );
+                this.loader.load(url, (gltf) => {
+                    // Gölgeleri aç
+                    gltf.scene.traverse((child) => {
+                        if (child.isMesh) {
+                            child.castShadow = true;
+                            child.receiveShadow = true;
+                        }
+                    });
+                    
+                    // [ÖNEMLİ] Sadece gltf.scene değil, TÜM GLTF objesini saklıyoruz
+                    // Çünkü animasyonlar gltf.animations içinde duruyor.
+                    this.assets.set(key, gltf); 
+                    
+                    console.log(`Model loaded: ${key}`);
+                    resolve();
+                }, undefined, reject);
             });
             promises.push(p);
         }
-
         await Promise.all(promises);
     }
 
+    // Modelin bir kopyasını (Clone) döndürür
     getModel(key) {
-        const original = this.assets.get(key);
-        if (!original) {
+        const gltf = this.assets.get(key); // Artık bu bir GLTF objesi
+        
+        if (!gltf) {
             console.warn(`Model not found: ${key}`);
             return new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshBasicMaterial({color:0xff0000}));
         }
-        // Clone logic is tricky with custom shaders if uniforms aren't cloned deeply.
-        // For simplicity, SkeletonUtils.clone is better, but here simple clone() works 
-        // because we want them to share the same Light Uniforms references, 
-        // but have unique Position/Maps.
-        const clone = original.clone(true); 
-        
-        // Re-bind uniforms that might need to be unique per instance if you change them later (like opacity)
-        // But for lights, sharing references is actually good.
-        return clone;
-    }
 
-    // Add this helper method to ResourceManager.js
-    debugGLTF(key) {
-        const model = this.assets.get(key);
-        if (!model) {
-            console.warn(`Model ${key} not found.`);
-            return;
-        }
+        // Modeli kopyala (Scene graph)
+        const clone = gltf.scene.clone();
 
-        console.group(`🔎 Inspecting Model: ${key}`);
-        model.traverse((child) => {
-            if (child.isMesh) {
-                console.group(`Mesh: ${child.name || 'Unnamed'}`);
-                console.log("Geometry Attributes:", child.geometry.attributes);
-                
-                // Check Material Properties
-                const mat = child.material; // This might be your Custom Shader or the original PBR
-                if (mat.uniforms) {
-                    console.log("Shader Uniforms:", mat.uniforms);
-                    console.log("Defines:", mat.defines);
-                } else {
-                    console.log("Original Material:", mat);
-                    console.log(" - Map (Diffuse):", mat.map);
-                    console.log(" - Color:", mat.color);
-                    console.log(" - Vertex Colors:", child.geometry.attributes.color ? "YES" : "NO");
-                    console.log(" - Transparent:", mat.transparent);
-                    console.log(" - Opacity:", mat.opacity);
-                }
-                console.groupEnd();
-            }
-        });
-        console.groupEnd();
+        // [HİLE BURADA] Orijinal animasyonları klonlanan mesh'e "yama" yapıyoruz.
+        // Böylece Building.js içinde this.mesh.animations diyebileceğiz.
+        clone.animations = gltf.animations;
+
+        return clone; // Hala tek bir obje (Mesh/Group) dönüyor, yapın bozulmadı.
     }
 }

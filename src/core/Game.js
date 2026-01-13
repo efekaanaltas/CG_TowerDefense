@@ -9,19 +9,20 @@ import { Building } from '../entities/Building.js';
 import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
-import { ShaderManager } from './ShaderManager.js';
+
 
 export class Game {
     constructor() {
         // State
         this.lives = 20;
         this.score = 0;
-        this.cash = 400;
+        this.cash = 1000;
         this.isGameOver = false;
         this.keys = { w: false, a: false, s: false, d: false };
         this.lastSpawnTime = 0;
         this.selectedTowerIndex = 0;
         this.resourceManager = new ResourceManager();
+        this.clock = new THREE.Clock();
 
         this.currentWaveIndex = 0;      // Kaçıncı dalgadayız?
         this.isWaveActive = false;      // Şu an savaş var mı?
@@ -34,10 +35,19 @@ export class Game {
         this.projectiles = [];
         this.interactables = [];
 
-        this.scene = new THREE.Scene();
-        this.shaderManager = new ShaderManager(this.scene);
-        this.resourceManager = new ResourceManager(this.shaderManager);
+        // --- CAMERA STATE ---
+        this.gameState = "PLAYING"; // "PLAYING", "TRANSITION", "CREDITS"
+        this.isPaused = false;      // Oyunu durdurmak için
         
+        // Geçiş Değişkenleri
+        this.transitionProgress = 0;
+        this.transitionDuration = 2.0; // 2 saniye sürsün
+        this.cruiseHeight = 40;
+        this.startCamPos = new THREE.Vector3();
+        this.startTarget = new THREE.Vector3();
+        this.endCamPos = new THREE.Vector3();
+        this.endTarget = new THREE.Vector3();
+
         this.init();
     }
 
@@ -63,6 +73,8 @@ export class Game {
             return; // Hata varsa oyunu başlatma
         }
 
+        // Scene Setup
+        this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -97,18 +109,12 @@ export class Game {
         dirLight.castShadow = true;
         this.scene.add(dirLight);
 
-        const textureLoader = new THREE.TextureLoader();
-        const skyTexture = textureLoader.load('/assets/skybox.jpg'); // Make sure you have this file!
-        skyTexture.mapping = THREE.EquirectangularReflectionMapping;
-        skyTexture.colorSpace = THREE.SRGBColorSpace; // Ensure colors look correct
-        this.scene.background = skyTexture;
-        this.scene.environment = skyTexture;
-
         // World Generation
         this.createLevel();
+        this.createCreditsArea();
         
         // Entities
-        this.player = new Player(this.scene);
+        this.player = new Player(this.scene, this.resourceManager);
 
         // Events
         window.addEventListener('resize', () => this.onWindowResize());
@@ -221,6 +227,51 @@ export class Game {
         // Eğer oyun en başta "Start Game" ile başlıyorsa bu buton gizli başlayabilir, 
         // startGame() içinde görünür yapabilirsin. Şimdilik görünür ekliyoruz.
         document.body.appendChild(waveBtn);
+
+        // --- 5. HELP OVERLAY (YARDIM MENÜSÜ) ---
+        const helpOverlay = document.createElement('div');
+        helpOverlay.id = 'help-overlay';
+        helpOverlay.style = `
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85); 
+            color: #fff; 
+            display: none; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            z-index: 150; 
+            font-family: 'Arial', sans-serif;
+            text-align: center;
+        `;
+
+        // İçerik (Tuşlar ve açıklamalar)
+        helpOverlay.innerHTML = `
+            <h2 style="font-size: 40px; color: #FFD700; margin-bottom: 30px; border-bottom: 2px solid #FFD700; padding-bottom: 10px;">CONTROLS & HELP</h2>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; font-size: 20px;">
+                <div style="font-weight: bold; color: #aaa;">W, A, S, D</div>
+                <div>Move Character</div>
+
+                <div style="font-weight: bold; color: #aaa;">SPACE</div>
+                <div>Build / Sell Tower</div>
+
+                <div style="font-weight: bold; color: #aaa;">M</div>
+                <div>Show / Hide Credits</div>
+
+                <div style="font-weight: bold; color: #aaa;">H</div>
+                <div>Show / Hide Help</div>
+                
+                <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
+                <div>Select Tower Type</div>
+                
+                <div style="font-weight: bold; color: #aaa;">Mouse Right</div>
+                <div>Rotate Camera</div>
+            </div>
+
+            <p style="margin-top: 40px; font-style: italic; color: #888;">Press 'H' to Resume Game</p>
+        `;
+
+        document.body.appendChild(helpOverlay);
     }
 
     updateTowerSelectionUI() {
@@ -346,6 +397,19 @@ export class Game {
         if (key === ' ') {
             this.handleSpaceInteraction();
         }
+
+        if (key === 'h') {
+            this.toggleHelp();
+            return;
+        }
+
+        if (e.key.toLowerCase() === 'm') {
+            if (this.gameState === "PLAYING") {
+                this.startTransitionToCredits();
+            } else if (this.gameState === "CREDITS") {
+                this.startTransitionToGame();
+            }
+        }
     }
 
     handleSpaceInteraction() {
@@ -407,6 +471,62 @@ export class Game {
         document.getElementById('delete-overlay').style.display = 'none';
     }
 
+    startTransitionToCredits() {
+        this.gameState = "TRANSITION";
+        this.isPaused = true;
+        this.transitionProgress = 0;
+        
+        // Nereden başlıyoruz?
+        this.startCamPos.copy(this.camera.position);
+        this.startTarget.copy(this.controls.target);
+        
+        // Nereye gidiyoruz?
+        this.endCamPos.copy(this.creditsCameraPos);
+        this.endTarget.copy(this.creditsTarget);
+        
+        this.targetState = "CREDITS";   
+    }
+
+    startTransitionToGame() {
+        this.gameState = "TRANSITION";
+        this.transitionProgress = 0;
+        
+        // Credits'ten geri dönüyoruz
+        this.startCamPos.copy(this.camera.position);
+        this.startTarget.copy(this.controls.target);
+        
+        // Oyuncuya geri dön
+        // Oyuncunun pozisyonunu hedefle
+        this.endTarget.copy(this.player.mesh.position);
+        
+        // Kamera oyuncunun arkasında klasik açısına dönsün
+        // Mevcut açıdan sapmaması için şöyle hesaplayabiliriz:
+        // (Veya sabit bir ofset verebilirsin: player + (0, 10, 10))
+        this.endCamPos.copy(this.player.mesh.position).add(new THREE.Vector3(0, 10, 10));
+        
+        this.targetState = "PLAYING";
+    }
+
+    toggleHelp() {
+        // Eğer oyun zaten "TRANSITION" veya "CREDITS" modundaysa yardım açılmasın
+        if (this.gameState !== "PLAYING" && this.gameState !== "HELP") return;
+
+        const el = document.getElementById('help-overlay');
+        
+        // Şu anki duruma göre tersini yap
+        if (this.gameState === "HELP") {
+            // Kapat ve Oyuna Dön
+            el.style.display = 'none';
+            this.gameState = "PLAYING";
+            this.isPaused = false;
+        } else {
+            // Aç ve Oyunu Durdur
+            el.style.display = 'flex';
+            this.gameState = "HELP";
+            this.isPaused = true;
+        }
+    }
+
     createLevel() {
         const geometry = new THREE.BoxGeometry(TILE_SIZE, 0.5, TILE_SIZE);
         const matBuildable = new THREE.MeshStandardMaterial({ color: 0x228B22 });
@@ -418,7 +538,6 @@ export class Game {
                 let type = MAP_LAYOUT[row][col];
                 let material = type === 1 ? matBuildable : (type === 2 ? matGoal : matPath);
                 const tile = new THREE.Mesh(geometry, material);
-                this.shaderManager.applyCustomMaterial(tile);
                 tile.position.set(col * TILE_SIZE, 0, row * TILE_SIZE);
                 tile.receiveShadow = true;
                 this.scene.add(tile);
@@ -439,6 +558,26 @@ export class Game {
 
     }
 
+    createCreditsArea() {
+        // Uzak bir konum
+        const cx = 100;
+        const cz = 0;
+        const scale = 8;
+
+        const credits = this.resourceManager.getModel('credits');
+        credits.position.set(cx-10, 0, cz-2);
+        credits.scale.set(scale, scale, scale);
+        // credits.rotation.y = ;
+
+        this.scene.add(credits);
+        
+        // Hedef (Kameranın bakacağı nokta)
+        this.creditsTarget = new THREE.Vector3(cx, 0, cz);
+        
+        // Kamera Pozisyonu (Tam tepeden bakması için X ve Z hedefle aynı, Y yüksek)
+        this.creditsCameraPos = new THREE.Vector3(cx, 20, cz);
+    }
+
     spawnEnemy(typeKey) {
         // String olarak gelen key'i (örn: "ice_golem"), ENEMY_TYPES dizisinde arayıp buluyoruz
         const typeDef = ENEMY_TYPES.find(e => e.type === typeKey);
@@ -455,90 +594,176 @@ export class Game {
         if (this.isGameOver) return;
         requestAnimationFrame(() => this.animate());
 
+        const delta = this.clock.getDelta(); // Three.Clock kullanıyorsan
         const now = Date.now();
 
-        // 1. Oyuncunun eski pozisyonunu kaydet
-        const oldPlayerPos = this.player.mesh.position.clone();
-
-        // 2. Player Update (Oyuncuyu hareket ettir)
-        this.player.update(this.keys, this.camera);
-
-        // 3. Oyuncu ne kadar yer değiştirdi? (Delta)
-        const newPlayerPos = this.player.mesh.position;
-        const deltaX = newPlayerPos.x - oldPlayerPos.x;
-        const deltaZ = newPlayerPos.z - oldPlayerPos.z;
-
-        // 4. Kamerayı da oyuncunun gittiği kadar taşı
-        // Bu sayede aradaki mesafe ve açı bozulmaz, ama zoom çalışmaya devam eder.
-        this.camera.position.x += deltaX;
-        this.camera.position.z += deltaZ;
-
-        // 5. OrbitControls'un hedefini (pivot noktasını) güncelle
-        this.controls.target.copy(newPlayerPos);
-        
-        this.controls.update();
-
-        // 2. Spawn Enemies
-        if (this.isWaveActive) {
-            const waveData = WAVE_DATA[this.currentWaveIndex];
-
-            // Kuyrukta hala düşman varsa ve süre dolduysa
-            if (this.spawnQueue.length > 0) {
-                if (now - this.lastSpawnTime > waveData.spawnDelay) {
-                    
-                    // Kuyruğun başından bir düşman tipi al
-                    const enemyType = this.spawnQueue.shift(); 
-                    this.spawnEnemy(enemyType);
-                    
-                    this.lastSpawnTime = now;
-                }
-            } 
-            // Kuyruk bitti VE sahnede hiç düşman kalmadıysa -> DALGA BİTTİ
-            else if (this.enemies.length === 0) {
-                this.endWave();
-            }
-        }
-
-        // 3. Enemies Update
-        for (let i = this.enemies.length - 1; i >= 0; i--) {
-            const enemy = this.enemies[i];
-            enemy.update();
+        // --- TRANSITION STATE ---
+        if (this.gameState === "TRANSITION") {
+            this.transitionProgress += delta / this.transitionDuration; // 2 saniye sürsün
             
-            if (enemy.reachedGoal) {
-                this.lives--;
-                enemy.dispose();
-                this.enemies.splice(i, 1);
-                this.updateUI();
-                if (this.lives <= 0) this.endGame();
-            } else if (enemy.isDead) {
-                this.score += 20;
-                this.cash += 15;
-                enemy.dispose();
-                this.enemies.splice(i, 1);
-                this.updateUI();
+            // Geçiş bitti mi?
+            if (this.transitionProgress >= 1) {
+                this.transitionProgress = 1;
+                this.gameState = this.targetState;
+                
+                // Eğer oyuna döndüysek kontrolleri aç, Credits ise kilitle
+                if (this.gameState === "PLAYING") {
+                    this.isPaused = false;
+                    this.controls.enabled = true;
+                    this.controls.target.copy(this.endTarget);
+                } else {
+                    this.controls.enabled = false; // Oyuncu kamerayı oynatamasın
+                }
             }
+
+            const t = this.transitionProgress;
+
+            // 1. HEDEF (Target) Hareketi: Dümdüz interpolasyon (Lerp)
+            // Kameranın baktığı yer A'dan B'ye doğrusal kaysın
+            this.controls.target.lerpVectors(this.startTarget, this.endTarget, t);
+
+            // 2. KAMERA POZİSYONU Hareketi: (Yüksel -> Git -> Alçal)
+            // Zaman dilimlerini belirliyoruz
+            const risePhase = 0.20;   // İlk %20: Yükselme
+            const travelPhase = 0.80; // %20-%80: İlerleme, Son %20: Alçalma
+
+            const currentPos = new THREE.Vector3();
+
+            if (t < risePhase) {
+                // --- AŞAMA 1: YÜKSELME ---
+                // t değerini bu aşama için 0-1 arasına ölçekle (normalize et)
+                const phaseT = t / risePhase;
+                
+                // SmoothStep hareketi yumuşatır (yavaş başla, yavaş dur)
+                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
+
+                // X ve Z sabit (başlangıçta), Y yükseliyor
+                currentPos.copy(this.startCamPos);
+                currentPos.y = THREE.MathUtils.lerp(this.startCamPos.y, this.cruiseHeight, smoothT);
+            } 
+            else if (t < travelPhase) {
+                // --- AŞAMA 2: İLERLEME ---
+                // t değerini bu aşama için 0-1 arasına ölçekle
+                const phaseT = (t - risePhase) / (travelPhase - risePhase);
+                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
+
+                // Y sabit (Tepe noktası), X ve Z hedefe gidiyor
+                // startCamPos ve endCamPos arasında X/Z geçişi yapıyoruz
+                currentPos.x = THREE.MathUtils.lerp(this.startCamPos.x, this.endCamPos.x, smoothT);
+                currentPos.z = THREE.MathUtils.lerp(this.startCamPos.z, this.endCamPos.z, smoothT);
+                currentPos.y = this.cruiseHeight;
+            } 
+            else {
+                // --- AŞAMA 3: ALÇALMA ---
+                // t değerini bu aşama için 0-1 arasına ölçekle
+                const phaseT = (t - travelPhase) / (1 - travelPhase);
+                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
+
+                // X ve Z hedefte sabit, Y alçalıyor
+                currentPos.copy(this.endCamPos);
+                // Yüksekten -> Hedef Yüksekliğine in
+                currentPos.y = THREE.MathUtils.lerp(this.cruiseHeight, this.endCamPos.y, smoothT);
+            }
+
+            this.camera.position.copy(currentPos);
+            
+            // Target değiştiği için update şart
+            this.controls.update(); 
+            
+            this.renderer.render(this.scene, this.camera);
+            return;
         }
 
-        // 4. Towers Update
-        this.towers.forEach(tower => {
-            tower.update(this.enemies, now, (pos, dir, stats) => {
-                // Projectile Callback
-                this.projectiles.push(new Projectile(this.scene, pos, dir, stats));
+        // --- CREDITS STATE ---
+        if (this.gameState === "CREDITS") {
+            // SABİT BEKLEME
+            // Kullanıcı müdahale edemez, kamera tam tepeden bakıyor.
+            // Hiçbir şey yapma, sadece render al.
+            this.renderer.render(this.scene, this.camera);
+            return;
+        }
+
+        // --- PLAYING STATE ---
+        if(!this.isPaused){
+            // 1. Oyuncunun eski pozisyonunu kaydet
+            const oldPlayerPos = this.player.mesh.position.clone();
+
+            // 2. Player Update (Oyuncuyu hareket ettir)
+            this.player.update(this.keys, this.camera);
+
+            // 3. Oyuncu ne kadar yer değiştirdi? (Delta)
+            const newPlayerPos = this.player.mesh.position;
+            const deltaX = newPlayerPos.x - oldPlayerPos.x;
+            const deltaZ = newPlayerPos.z - oldPlayerPos.z;
+
+            // 4. Kamerayı da oyuncunun gittiği kadar taşı
+            // Bu sayede aradaki mesafe ve açı bozulmaz, ama zoom çalışmaya devam eder.
+            this.camera.position.x += deltaX;
+            this.camera.position.z += deltaZ;
+
+            // 5. OrbitControls'un hedefini (pivot noktasını) güncelle
+            this.controls.target.copy(newPlayerPos);
+            
+            this.controls.update();
+
+            // 2. Spawn Enemies
+            if (this.isWaveActive) {
+                const waveData = WAVE_DATA[this.currentWaveIndex];
+
+                // Kuyrukta hala düşman varsa ve süre dolduysa
+                if (this.spawnQueue.length > 0) {
+                    if (now - this.lastSpawnTime > waveData.spawnDelay) {
+                        
+                        // Kuyruğun başından bir düşman tipi al
+                        const enemyType = this.spawnQueue.shift(); 
+                        this.spawnEnemy(enemyType);
+                        
+                        this.lastSpawnTime = now;
+                    }
+                } 
+                // Kuyruk bitti VE sahnede hiç düşman kalmadıysa -> DALGA BİTTİ
+                else if (this.enemies.length === 0) {
+                    this.endWave();
+                }
+            }
+
+            // 3. Enemies Update
+            for (let i = this.enemies.length - 1; i >= 0; i--) {
+                const enemy = this.enemies[i];
+                enemy.update();
+                
+                if (enemy.reachedGoal) {
+                    this.lives--;
+                    enemy.dispose();
+                    this.enemies.splice(i, 1);
+                    this.updateUI();
+                    if (this.lives <= 0) this.endGame();
+                } else if (enemy.isDead) {
+                    this.score += 20;
+                    this.cash += 15;
+                    enemy.dispose();
+                    this.enemies.splice(i, 1);
+                    this.updateUI();
+                }
+            }
+
+            // 4. Towers Update
+            this.towers.forEach(tower => {
+                tower.update(this.enemies, now, delta, (pos, dir, stats) => {
+                    // Projectile Callback
+                    this.projectiles.push(new Projectile(this.scene, pos, dir, stats));
+                });
             });
-        });
 
-        // 5. Projectiles Update
-        for (let i = this.projectiles.length - 1; i >= 0; i--) {
-            const proj = this.projectiles[i];
-            proj.update(this.enemies);
-            if (proj.shouldRemove) {
-                proj.dispose();
-                this.projectiles.splice(i, 1);
+            // 5. Projectiles Update
+            for (let i = this.projectiles.length - 1; i >= 0; i--) {
+                const proj = this.projectiles[i];
+                proj.update(this.enemies);
+                if (proj.shouldRemove) {
+                    proj.dispose();
+                    this.projectiles.splice(i, 1);
+                }
             }
-        }
-
-        if (this.shaderManager) {
-            this.shaderManager.update(now); 
         }
 
         this.renderer.render(this.scene, this.camera);

@@ -2,19 +2,24 @@ import * as THREE from 'three';
 import { TILE_SIZE } from '../data/Constants.js';
 
 export class Player {
-    constructor(scene) {
-        this.mesh = this.createMesh();
-        this.mesh.position.set(2, 1, 2);
+    constructor(scene, resourceManager) {
+        this.scene = scene;
         this.speed = 0.15;
-        scene.add(this.mesh);
-    }
 
-    createMesh() {
-        const geometry = new THREE.BoxGeometry(1, 1, 1);
-        const material = new THREE.MeshStandardMaterial({ color: 0x0000FF });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.castShadow = true;
-        return mesh;
+        // [DEĞİŞİKLİK] Küp yerine modeli yükle
+        this.mesh = resourceManager.getModel('player');
+        
+        // Başlangıç Pozisyonu
+        this.mesh.position.set(2, 0.1, 2); // Y değerini modele göre ayarla (gömülmesin)
+
+        // Ölçeklendirme (Model çok büyük veya küçükse buradan ayarla)
+        const scale = 5;
+        this.mesh.scale.set(scale, scale, scale); 
+
+        // Eğer modelin yüzü varsayılan olarak arkaya bakıyorsa döndür
+        // this.mesh.rotation.y = Math.PI;
+
+        scene.add(this.mesh);
     }
 
     getPosition() {
