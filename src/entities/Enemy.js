@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { TILE_SIZE, WAYPOINTS } from '../data/Constants.js';
+import { TILE_SIZE, WAYPOINTS, TARGET } from '../data/Constants.js';
+
 
 export class Enemy {
     constructor(scene, typeDef, dangerPoints) {
         this.scene = scene;
         this.mesh = this.createMesh(typeDef.color);
         this.dangerPoints = dangerPoints;
+        this.randomChoice = Math.random();
 
         const startNode = WAYPOINTS[0];
         this.mesh.position.set(startNode.x * TILE_SIZE, 1, startNode.z * TILE_SIZE);
@@ -62,19 +64,31 @@ export class Enemy {
     }
 
     update() {
-        const targetIndex = this.currentPointIndex + 1;
-        if(this.weakness === 'fire' && this.dangerPoints.points[targetIndex].dangerFire > 5){
-            //choose alternative path or slow down
-            console.log("Ice Golem passing through high fire danger!");
+        let targetIndex = this.currentPointIndex + 1;
+        const dangerThreshold = 1;
+        if (WAYPOINTS[targetIndex].x == TARGET.x && WAYPOINTS[targetIndex].z == TARGET.z) {
+        this.reachedGoal = true;
+        return;
         }
-        else if(this.weakness === 'ice' && this.dangerPoints.points[targetIndex].dangerIce > 5){
-            //choose alternative path or slow down
-            console.log("Fire Imp passing through high ice danger!");
+
+        if(WAYPOINTS[this.currentPointIndex].alternative != 0 ){
+            if(this.weakness === 'fire' && this.dangerPoints.points[targetIndex].dangerFire >= dangerThreshold){
+                if(this.randomChoice < 0.7){
+                    targetIndex += WAYPOINTS[this.currentPointIndex].alternative;
+                    console.log("Ice Golem changing direction!");
+                }
+            }
+            else if(this.weakness === 'ice' && this.dangerPoints.points[targetIndex].dangerIce >= dangerThreshold){
+                if(this.randomChoice < 0.7){
+                    targetIndex += WAYPOINTS[this.currentPointIndex].alternative;
+                    console.log("Fire Imp changing direction!");
+                }
+            }
+            else{
+                this.randomChoice < 0.5 ? targetIndex += ((WAYPOINTS[this.currentPointIndex].alternative)) : 0;
+            }
         }
-        if (targetIndex >= WAYPOINTS.length) {
-            this.reachedGoal = true;
-            return;
-        }
+        
 
         const target = WAYPOINTS[targetIndex];
         const tx = target.x * TILE_SIZE;

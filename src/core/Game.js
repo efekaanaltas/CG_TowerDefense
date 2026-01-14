@@ -10,12 +10,13 @@ import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
 import { ShaderManager } from './ShaderManager.js';
+import DangerPoints from '../entities/DangerPoints.js';
 
 export class Game {
     constructor() {
         this.lives = 20;
         this.score = 0;
-        this.cash = 200;
+        this.cash = 20000;
         this.isGameOver = false;
         this.keys = { w: false, a: false, s: false, d: false };
         this.lastSpawnTime = 0;
@@ -49,6 +50,8 @@ export class Game {
         this.isPaused = false;
         this.isMenuOpen = false;
         
+        this.dangerPoints = new DangerPoints(this.towers);
+
         this.transitionProgress = 0;
         this.transitionDuration = 2.0;
         this.cruiseHeight = 40;
@@ -1061,6 +1064,7 @@ onMouseMove(e) {
             this.towers.push(tower);
             this.towerStats[typeInfo.name]++;
             this.updateUI();
+            this.dangerPoints.calculateAllDangerPoints();
         } else {
             console.log("Yetersiz para!");
         }

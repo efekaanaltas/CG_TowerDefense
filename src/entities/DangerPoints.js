@@ -4,26 +4,30 @@ export class DangerPoints {
         this.points = [];
         this.towers = towers;
         //Calculating all danger points at initialization
-        for(let p of WAYPOINTS){
-            this.addDangerPoint(WAYPOINTS.indexOf(p), 
-            (this.getDangerPointsForWaypoint(WAYPOINTS.indexOf(p))).fireDanger, 
-            (this.getDangerPointsForWaypoint(WAYPOINTS.indexOf(p))).iceDanger
-            );
+        for (let i = 0; i < WAYPOINTS.length; i++) {
+            this.addDangerPoint(i, 
+            this.getDangerPointsForWaypoint(i).fireDanger, 
+            this.getDangerPointsForWaypoint(i).iceDanger
+        );
         }
     }
-    addDangerPoint(waypointId, dangerFire = 0, dangerIce = 0) {
-        this.points.push({ waypointId, dangerFire, dangerIce });
+
+    addDangerPoint(waypointIdx, dangerFire = 0, dangerIce = 0) {
+        this.points.push({ waypointIdx, dangerFire, dangerIce });
     }
 
-    getDangerPointsForWaypoint(waypointId) {
-        let x = WAYPOINTS[waypointId]?.x || 0;
-        let z = WAYPOINTS[waypointId]?.z || 0;
-        let iceDanger = 0;
-        let fireDanger = 0;
+    getDangerPointsForWaypoint(waypointIdx) {
+        var x = WAYPOINTS[waypointIdx]?.x || 0;
+        var z = WAYPOINTS[waypointIdx]?.z || 0;
+        var iceDanger = 0;
+        var fireDanger = 0;
         for(let tower of this.towers){
-            let tx = Math.floor(tower.mesh.position.x / 5);
-            let tz = Math.floor(tower.mesh.position.z / 5);
-            if(Math.sqrt((tx - x)*(tx - x) + (tz - z)*(tz - z)) <= 2){ //within 2 tiles
+            var tx = Math.floor(tower.mesh.position.x / 2);
+            var tz = Math.floor(tower.mesh.position.z / 2);
+            let dist = Math.sqrt((tx - x)*(tx - x) + (tz - z)*(tz - z));
+            console.log(`Tower at (${tx}, ${tz}) to Waypoint (${x}, ${z}) distance: ${dist}`);
+            if(dist <= 3){ 
+            //within 3 tiles
                 if(tower.stats.element === 'fire'){
                     fireDanger += 1;
                 }
@@ -34,14 +38,15 @@ export class DangerPoints {
         }
         return { iceDanger, fireDanger };
     }
+
     calculateAllDangerPoints() {
         this.clearAll();
-        for(let p of WAYPOINTS){
-            this.addDangerPoint(WAYPOINTS.indexOf(p), 
-            (this.getDangerPointsForWaypoint(WAYPOINTS.indexOf(p))).fireDanger, 
-            (this.getDangerPointsForWaypoint(WAYPOINTS.indexOf(p))).iceDanger
-            );
-        }
+        for (let i = 0; i < WAYPOINTS.length; i++) {
+            this.addDangerPoint(i, 
+            this.getDangerPointsForWaypoint(i).fireDanger, 
+            this.getDangerPointsForWaypoint(i).iceDanger
+        );
+    }
         console.log("Calculated Danger Points: ", this.points);
     }
 
