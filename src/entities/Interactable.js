@@ -6,32 +6,22 @@ export class Interactable {
         this.scene = scene;
         this.type = typeDef.type;
         
+        // Modeli ResourceManager'dan al
         this.mesh = resourceManager.getModel(typeDef.modelKey);
         
+        // Scale ayarı
         if (typeDef.scale) {
             this.mesh.scale.set(typeDef.scale, typeDef.scale, typeDef.scale);
         }
 
+        // Pozisyonu ayarla
         this.mesh.position.set(x * TILE_SIZE, y * TILE_SIZE, z * TILE_SIZE);
         
-        // [NEW] Link mesh back to this class for Raycasting
-        this.mesh.traverse((child) => {
-            if (child.isMesh) {
-                child.userData.parentInteractable = this;
-            }
-        });
-        this.mesh.userData.parentInteractable = this;
-
         scene.add(this.mesh);
     }
 
-    // [NEW] Helper to set position
-    setPosition(pos) {
-        this.mesh.position.copy(pos);
-    }
-    
-    // [NEW] Helper to rotate
-    rotate(axis, amount) {
-        this.mesh.rotation[axis] += amount;
+    interact() {
+        console.log("Interacted with " + this.type);
+        // İleride buraya model animasyonu ekleyebilirsin
     }
 }

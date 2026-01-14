@@ -20,21 +20,16 @@ export const phong_vertex = `
 
         vec4 worldPosition = modelMatrix * vec4(position, 1.0);
         vWorldPosition = worldPosition.xyz;
-        
-        // [CHANGED] Calculate vViewPosition as vector from Surface TO Camera (World Space)
         vViewPosition = cameraPosition - worldPosition.xyz;
 
-        // [CHANGED] Transform Normal to WORLD SPACE instead of View Space
-        // This fixes the view-dependency in triplanar mapping
-        vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-
-        // We don't strictly need tangents for triplanar, but keeping them valid
+        vec3 transformedNormal = normalMatrix * normal;
         vec3 transformedTangent = normalize((modelMatrix * vec4(tangent.xyz, 0.0)).xyz);
-        vec3 transformedBitangent = normalize(cross(vNormal, transformedTangent) * tangent.w);
+        vec3 transformedBitangent = normalize(cross(transformedNormal, transformedTangent) * tangent.w);
 
+        vNormal = transformedNormal;
         vTangent = transformedTangent;
         vBitangent = transformedBitangent;
 
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
-`;
+    `;
