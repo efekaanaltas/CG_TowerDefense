@@ -60,9 +60,9 @@ export const MAP_LAYOUT = [
     ];
 
 export const WAYPOINTS = [
-    { x: 0, z: 1 }, { x: 4, z: 1 }, { x: 4, z: 3 }, { x: 10, z: 3 },
-    { x: 10, z: 6 }, { x: 6, z: 6 }, { x: 6, z: 8 }, { x: 13, z: 8 },
-    { x: 13, z: 10 }, { x: 19, z: 10 }
+    { x: 0, z: 1, fire: 0, ice: 0 }, { x: 4, z: 1, fire: 0, ice: 0 }, { x: 4, z: 3, fire: 0, ice: 0 }, { x: 10, z: 3, fire: 0, ice: 0 },
+    { x: 10, z: 6, fire: 0, ice: 0 }, { x: 6, z: 6, fire: 0, ice: 0 }, { x: 6, z: 8, fire: 0, ice: 0 }, { x: 13, z: 8, fire: 0, ice: 0 },
+    { x: 13, z: 10, fire: 0, ice: 0 }, { x: 19, z: 10, fire: 0, ice: 0 }
 ];
 
 export const MODEL_PATHS = {
