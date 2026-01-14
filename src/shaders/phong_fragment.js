@@ -9,7 +9,10 @@ export const phong_fragment = `
     uniform float uMetallic;
     uniform float uOpacity;         
     uniform float uAlphaTest;
-    uniform float uNormalScale; // [NEW]
+    uniform float uNormalScale;
+    
+    // [NEW] Emissive Uniform
+    uniform vec3 uEmissive;
 
     struct DirLight { vec3 direction; vec3 color; };
     struct SpotLight { vec3 position; vec3 direction; vec3 color; float cutOff; float decay; };
@@ -31,50 +34,39 @@ export const phong_fragment = `
     }
 
     vec3 getTriplanarNormal(vec3 worldPos, vec3 surfNormal, float scale) {
-        // 1. Blending Weights
         vec3 blend = abs(surfNormal);
         blend = pow(blend, vec3(4.0)); 
         float b = (blend.x + blend.y + blend.z);
         blend /= b;
 
-        // 2. Sample Normal Maps
         vec3 tx = texture2D(normalMap, worldPos.zy * scale).rgb * 2.0 - 1.0;
         vec3 ty = texture2D(normalMap, worldPos.xz * scale).rgb * 2.0 - 1.0;
         vec3 tz = texture2D(normalMap, worldPos.xy * scale).rgb * 2.0 - 1.0;
 
-        // [NEW] Apply Normal Strength Scaling
-        // Multiply X and Y (perturbations) by the scale factor.
-        // Z (the dominant outward vector) stays the same.
         tx.xy *= uNormalScale;
         ty.xy *= uNormalScale;
         tz.xy *= uNormalScale;
 
-        // Re-normalize to ensure correct vector length after scaling
         tx = normalize(tx);
         ty = normalize(ty);
         tz = normalize(tz);
 
-        // 3. Swizzle to World Axes
         vec3 nx = vec3(tx.z, tx.y, tx.x); 
         vec3 ny = vec3(ty.x, ty.z, ty.y); 
         vec3 nz = vec3(tz.x, tz.y, tz.z);
 
-        // 4. Blend
         return normalize(nx * blend.x + ny * blend.y + nz * blend.z);
     }
 
     void main() {
-        // ... (Rest of main function remains unchanged) ...
         vec2 coords = vUv; 
         vec4 textureColor = texture2D(map, coords);
         vec3 finalBaseColor = textureColor.rgb * vColor;
         float finalAlpha = textureColor.a * uOpacity;
         if (finalAlpha < uAlphaTest) discard;
 
-        // Normal Mapping
         vec3 normal = getTriplanarNormal(vWorldPosition, normalize(vNormal), 0.5);
         
-        // ... (Lighting calculations continue as before) ...
         vec3 viewDir = normalize(vViewPosition);
         float specularStrength = texture2D(specularMap, coords).r;
 
@@ -103,7 +95,8 @@ export const phong_fragment = `
         vec3 halfwaySpot = normalize(spotDir + viewDir);
         vec3 specularSpot = 10.0*spotLight.color * pow(max(dot(normal, halfwaySpot), 0.0), uShininess) * specularStrength * intensity * att;
 
-        vec3 finalColor = ambient + (diffuse + diffuseSpot) * finalBaseColor + (specular + specularSpot) + reflection/2.0;
+        // [UPDATED] Added uEmissive to final calculation
+        vec3 finalColor = ambient + (diffuse + diffuseSpot) * finalBaseColor + (specular + specularSpot) + reflection/2.0 + uEmissive;
 
         gl_FragColor = vec4(finalColor, finalAlpha);
     }

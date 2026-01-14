@@ -28,13 +28,14 @@ export class ShaderManager {
                     position: new THREE.Vector3(0, 5, 0),
                     direction: new THREE.Vector3(0, -1, 0),
                     color: new THREE.Color(0xffaa00),
-                    cutOff: Math.cos(Math.PI / 6), // 30 degrees
+                    cutOff: Math.cos(Math.PI / 6),
                     decay: 0.5
                 } 
             },
             envMap: { value: null }
         };
         
+        // Define both shader pairs
         this.shaderDefs = {
             phong: { vertexShader: phong_vertex, fragmentShader: phong_fragment },
             toon: { vertexShader: toon_vertex, fragmentShader: toon_fragment }
@@ -50,31 +51,33 @@ export class ShaderManager {
         console.log("Switching Shader to:", this.isAlternateShader ? "Toon" : "Phong");
 
         this.materials.forEach(mat => {
+            // 1. Swap the shader source
             mat.vertexShader = newDef.vertexShader;
             mat.fragmentShader = newDef.fragmentShader;
             
+            // 2. [IMPORTANT] Update uniforms specific to the mode
             if (this.isAlternateShader) {
-                mat.uniforms.materialColor = { value: mat.userData.originalColor || new THREE.Color(0xffffff) };
-            }
-
+                // Toon Mode: Ensure materialColor is set (uses original color)
+                if (mat.userData.originalColor) {
+                    mat.uniforms.materialColor.value.copy(mat.userData.originalColor);
+                }
+            } 
+            
+            // 3. Trigger recompile
             mat.needsUpdate = true;
         });
     }
 
-    // [NEW] Helper to update spotlight uniforms
     updateSpotLight(position, direction) {
         this.globalUniforms.spotLight.value.position.copy(position);
         this.globalUniforms.spotLight.value.direction.copy(direction);
-        // No need to set needsUpdate for value changes on uniforms, strictly speaking, 
-        // but often good practice if using non-shared structs. 
-        // Since we share the object ref in globalUniforms, all materials update automatically.
     }
 
     applyCustomMaterial(mesh) {
         const oldMat = mesh.material;
         const geom = mesh.geometry;
         
-        // ... (Tangents/Geometry Checks same as before) ...
+        // Tangent calculations
         const hasUV = geom.attributes.uv !== undefined;
         const hasNormal = geom.attributes.normal !== undefined;
         const hasIndex = geom.index !== null;
@@ -87,12 +90,11 @@ export class ShaderManager {
             geom.setAttribute('tangent', new THREE.BufferAttribute(tangents, 4));
         }
 
-        const originalColor = oldMat.color ? oldMat.color : new THREE.Color(0xffffff);
+        const originalColor = oldMat.color ? oldMat.color.clone() : new THREE.Color(0xffffff);
 
         let map;
         if (oldMat.map) map = oldMat.map;
-        else if (oldMat.color) map = this._createPlaceholderTexture(oldMat.color.getHex());
-        else map = this._createPlaceholderTexture(0xffffff);
+        else map = this._createPlaceholderTexture(originalColor.getHex());
 
         const normalMap = oldMat.normalMap || this.globalNormalMap;
         const specularMap = (oldMat.roughnessMap || oldMat.metalnessMap) || this._createPlaceholderTexture(0x000000);
@@ -115,8 +117,8 @@ export class ShaderManager {
                 uMetallic: { value: 0.5 },
                 uOpacity: { value: opacity },
                 uAlphaTest: { value: 0.5 },
-
                 uNormalScale: { value: 0.3 },
+                uEmissive: { value: new THREE.Color(0x000000) },
                 
                 materialColor: { value: originalColor }
             },

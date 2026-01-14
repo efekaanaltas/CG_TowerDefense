@@ -9,7 +9,7 @@ import { Building } from '../entities/Building.js';
 import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
-
+import { ShaderManager } from './ShaderManager.js';
 
 export class Game {
     constructor() {
@@ -43,6 +43,10 @@ export class Game {
         this.towers = [];
         this.projectiles = [];
         this.interactables = [];
+
+        this.scene = new THREE.Scene();
+        this.shaderManager = new ShaderManager(this.scene);
+        this.resourceManager = new ResourceManager(this.shaderManager);
 
         // --- CAMERA STATE ---
         this.gameState = "PLAYING"; // "PLAYING", "TRANSITION", "CREDITS"
@@ -104,7 +108,6 @@ export class Game {
         }
 
         // Scene Setup
-        this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -165,6 +168,13 @@ export class Game {
         
         this.scene.add(dirLight);
 
+        const textureLoader = new THREE.TextureLoader();
+        const skyTexture = textureLoader.load('/assets/skybox.jpg'); // Make sure you have this file!
+        skyTexture.mapping = THREE.EquirectangularReflectionMapping;
+        skyTexture.colorSpace = THREE.SRGBColorSpace; // Ensure colors look correct
+        this.scene.background = skyTexture;
+        this.scene.environment = skyTexture;
+
         // World Generation
         this.createLevel();
         this.createCreditsArea();
@@ -189,22 +199,16 @@ export class Game {
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
         window.addEventListener('keyup', (e) => this.keys[e.key.toLowerCase()] = false);
 
-        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
         window.addEventListener('mousedown', (e) => this.onMouseDown(e));
-        window.addEventListener('click', (e) => this.onMouseClick(e));
         window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        window.addEventListener('click', (e) => this.onMouseClick(e));
 
         this.updateUI();
 
     }
 
-    onMouseMove(event) {
-        // Normalize mouse position (-1 to +1)
-        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-    }
-
     onMouseDown(event) {
+        console.log("onmouseodnw");
         if (this.gameState !== "PLAYING" || this.isPaused) return;
 
         if (event.button === 0) { // Left Click
@@ -735,48 +739,48 @@ export class Game {
         });
     }
 
-    onMouseMove(e) {
-        if (!this.isMenuOpen || this.isGameOver) {
-            if (this.ghostTower) this.ghostTower.visible = false;
-            return;
-        }
-
-        // Calculate mouse position
+onMouseMove(e) {
+        // 1. ALWAYS Update Mouse Coordinates (Critical for Pickup)
         this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
 
-        // Update raycaster
-        this.raycaster.setFromCamera(this.mouse, this.camera);
+        // 2. Build Menu Logic (Only if menu is open)
+        if (this.isMenuOpen && !this.isGameOver) {
+            // Update raycaster for building
+            this.raycaster.setFromCamera(this.mouse, this.camera);
 
-        // Check intersection with ground tiles
-        const intersects = this.raycaster.intersectObjects(this.groundTiles);
+            // Check intersection with ground tiles
+            const intersects = this.raycaster.intersectObjects(this.groundTiles);
 
-        if (intersects.length > 0) {
-            const hoveredTile = intersects[0].object;
-            const gridX = hoveredTile.userData.gridX;
-            const gridZ = hoveredTile.userData.gridZ;
+            if (intersects.length > 0) {
+                const hoveredTile = intersects[0].object;
+                const gridX = hoveredTile.userData.gridX;
+                const gridZ = hoveredTile.userData.gridZ;
 
-            // Check if we need to recreate ghost (tower type changed)
-            const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
-            if (this.ghostTower && this.ghostTower.userData.towerType !== this.selectedTowerIndex) {
-                this.createGhostTower();
+                // Check if we need to recreate ghost (tower type changed)
+                const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
+                if (this.ghostTower && this.ghostTower.userData.towerType !== this.selectedTowerIndex) {
+                    this.createGhostTower();
+                }
+                if (this.ghostTower) {
+                    this.ghostTower.userData.towerType = this.selectedTowerIndex;
+                }
+
+                // Check if placement is valid
+                const tileType = hoveredTile.userData.tileType;
+                const existingTower = this.towers.find(t => {
+                    const tPos = t.mesh.position;
+                    return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
+                });
+
+                const isValid = tileType === 1 && !existingTower && this.cash >= typeInfo.cost;
+                
+                this.updateGhostTower(gridX, gridZ, isValid);
+            } else {
+                if (this.ghostTower) this.ghostTower.visible = false;
             }
-            if (this.ghostTower) {
-                this.ghostTower.userData.towerType = this.selectedTowerIndex;
-            }
-
-            // Check if placement is valid
-            const tileType = hoveredTile.userData.tileType;
-            const existingTower = this.towers.find(t => {
-                const tPos = t.mesh.position;
-                return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
-            });
-
-            const isValid = tileType === 1 && !existingTower && this.cash >= typeInfo.cost;
-            
-            this.updateGhostTower(gridX, gridZ, isValid);
         } else {
-            // Hide ghost when not hovering over tiles
+            // If menu is closed, hide the ghost tower
             if (this.ghostTower) this.ghostTower.visible = false;
         }
     }
@@ -1034,10 +1038,6 @@ export class Game {
             this.handleSpaceSellTower();
         }
 
-        if (key === 'p') {
-            this.shaderManager.toggleShaders();
-        }
-
         if (key === 'r') {
             if (this.rotateAxis === 'x') this.rotateAxis = 'y';
             else if (this.rotateAxis === 'y') this.rotateAxis = 'z';
@@ -1048,14 +1048,6 @@ export class Game {
 
         if (key === 'p') {
             this.shaderManager.toggleShaders();
-        }
-
-        if (key === 'r') {
-            if (this.rotateAxis === 'x') this.rotateAxis = 'y';
-            else if (this.rotateAxis === 'y') this.rotateAxis = 'z';
-            else this.rotateAxis = 'x';
-            console.log("Rotation Axis:", this.rotateAxis);
-            this.updateUI(); // Optional: display current axis
         }
 
         if (key === 'h') {
@@ -1254,6 +1246,7 @@ export class Game {
                 let type = MAP_LAYOUT[row][col];
                 let material = type === 1 ? matBuildable : (type === 2 ? matGoal : matPath);
                 const tile = new THREE.Mesh(geometry, material);
+                this.shaderManager.applyCustomMaterial(tile);
                 tile.position.set(col * TILE_SIZE, 0, row * TILE_SIZE);
                 tile.receiveShadow = true;
                 tile.userData.gridX = col;
@@ -1447,6 +1440,10 @@ export class Game {
             
             // Target değiştiği için update şart
             this.controls.update(); 
+
+            if (this.shaderManager) {
+                this.shaderManager.update(now); 
+            }
             
             this.renderer.render(this.scene, this.camera);
             return;

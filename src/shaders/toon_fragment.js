@@ -1,6 +1,7 @@
 export const toon_fragment = `
 uniform vec3 ambientColor;
 uniform vec3 materialColor;
+uniform vec3 uEmissive; // [NEW]
 
 struct DirLight { vec3 direction; vec3 color; };
 struct SpotLight { vec3 position; vec3 direction; vec3 color; float cutOff; float decay; };
@@ -32,25 +33,23 @@ void main() {
     
     vec3 spotEffect = vec3(0.0);
     
-    // Hard Cutoff for the cone edge
     if (theta > spotLight.cutOff) {
         float dist = length(spotLight.position - vWorldPosition);
         float att = 1.0 / (1.0 + 0.05 * dist + 0.01 * (dist * dist));
         
         float spotDiff = max(dot(norm, spotDirVector), 0.0);
         
-        // Combine intensity and snap to discrete bands
         float strength = spotDiff * att;
         float spotTone = 0.0;
         
-        if (strength > 0.5) spotTone = 1.0;      // Bright Center
-        else if (strength > 0.15) spotTone = 0.5; // Mid Band
-        // else 0.0 (Dark)
+        if (strength > 0.5) spotTone = 1.0;      
+        else if (strength > 0.15) spotTone = 0.5; 
 
-        spotEffect = spotLight.color * spotTone * 2.0; // 2.0 boost for visibility
+        spotEffect = spotLight.color * spotTone * 2.0; 
     }
 
-    vec3 finalColor = (ambientColor * materialColor) + dirLightEffect + spotEffect;
+    // [UPDATED] Added uEmissive
+    vec3 finalColor = (ambientColor * materialColor) + dirLightEffect + spotEffect + uEmissive;
     gl_FragColor = vec4(2.0*finalColor, 1.0);
 }
 `;
