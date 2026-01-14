@@ -86,5 +86,6 @@ export const MODEL_PATHS = {
 export const INTERACTABLE_TYPES = [
     { type: 'Car', modelKey: 'car', scale: 0.6 },
     { type: 'Sword', modelKey: 'sword', scale: 2.5 },
-    { type: 'Plant', modelKey: 'plant', scale: 5 }
+    { type: 'Plant', modelKey: 'plant', scale: 5 },
+    { type: 'Spotlight', modelKey: 'tower_turret', scale: 0.5 }
 ];

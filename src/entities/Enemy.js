@@ -6,17 +6,14 @@ export class Enemy {
         this.scene = scene;
         this.mesh = this.createMesh(typeDef.color);
         
-        // Başlangıç pozisyonu
         const startNode = WAYPOINTS[0];
         this.mesh.position.set(startNode.x * TILE_SIZE, 1, startNode.z * TILE_SIZE);
         
-        // Özellikler
         this.hp = typeDef.hp;
         this.weakness = typeDef.weakness;
         this.speed = 0.05;
         this.currentPointIndex = 0;
         
-        // Silinmesi gerekiyor mu bayrağı
         this.isDead = false;
         this.reachedGoal = false;
 
@@ -25,10 +22,10 @@ export class Enemy {
 
     createMesh(color) {
         const geometry = new THREE.SphereGeometry(0.6, 16, 16);
+        // Note: The Game.js logic should handle applying the shader to this mesh
         const material = new THREE.MeshStandardMaterial({ color: color });
         const mesh = new THREE.Mesh(geometry, material);
         mesh.castShadow = true;
-        // Referans olarak instance'ı userData'ya ekleyebiliriz
         mesh.userData.entity = this; 
         return mesh;
     }
@@ -44,17 +41,30 @@ export class Enemy {
 
         this.hp -= finalDamage;
 
-        // Hasar efekti
-        this.mesh.material.emissive.setHex(0xFFFFFF);
-        setTimeout(() => {
-            if(this.mesh) this.mesh.material.emissive.setHex(0x000000);
-        }, 50);
+        // [FIX] Update flash logic for Custom Shader
+        const mat = this.mesh.material;
+        
+        // 1. Check if we have the custom emissive uniform
+        if (mat.uniforms && mat.uniforms.uEmissive) {
+            mat.uniforms.uEmissive.value.setHex(0xFFFFFF);
+            setTimeout(() => {
+                if(this.mesh) mat.uniforms.uEmissive.value.setHex(0x000000);
+            }, 50);
+        } 
+        // 2. Fallback for Standard Material (if shader not applied for some reason)
+        else if (mat.emissive) {
+            mat.emissive.setHex(0xFFFFFF);
+            setTimeout(() => {
+                if(this.mesh) mat.emissive.setHex(0x000000);
+            }, 50);
+        }
 
         if (this.hp <= 0) {
             this.isDead = true;
         }
     }
 
+    // ... (Keep update and dispose methods as they were)
     update() {
         const targetIndex = this.currentPointIndex + 1;
         
