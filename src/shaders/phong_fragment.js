@@ -69,7 +69,6 @@ export const phong_fragment = `
         float finalAlpha = textureColor.a * uOpacity;
         if (finalAlpha < uAlphaTest) discard;
 
-        // Triplanar Normal
         vec3 normal = getTriplanarNormal(vWorldPosition, normalize(vNormal), 0.5);
         
         vec3 viewDir = normalize(vViewPosition);
