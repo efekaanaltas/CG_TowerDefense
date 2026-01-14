@@ -435,6 +435,11 @@ export class Game {
                 <div style="font-weight: bold; color: #aaa;">H</div>
                 <div>Show / Hide Help</div>
                 
+                <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
+                <div>Select Tower Type</div>
+                
+                <div style="font-weight: bold; color: #aaa;">Mouse Right</div>
+                <div>Rotate Camera</div>
             </div>
 
             <button id="btn-exit-menu" style="margin-top: 30px; padding: 10px 30px; background: #dc3545; color: white; border: none; border-radius: 5px; font-size: 18px; cursor: pointer;">
@@ -1284,6 +1289,10 @@ export class Game {
             
             // Target değiştiği için update şart
             this.controls.update(); 
+            
+            if (this.shaderManager) {
+                this.shaderManager.update(now); 
+            }
             
             this.renderer.render(this.scene, this.camera);
             return;

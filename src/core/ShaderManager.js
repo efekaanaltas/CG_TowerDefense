@@ -11,9 +11,13 @@ export class ShaderManager {
         
         // 2. [NEW] Configure it to repeat/tile
         // This prevents it from looking stretched on large objects like the ground
+        
+        // 2. [NEW] Configure it to repeat/tile
+        // This prevents it from looking stretched on large objects like the ground
         this.globalNormalMap.wrapS = THREE.RepeatWrapping;
         this.globalNormalMap.wrapT = THREE.RepeatWrapping;
         
+        // ... (Keep your globalUniforms defined as before)
         // ... (Keep your globalUniforms defined as before)
         this.globalUniforms = {
             ambientColor: { value: new THREE.Color(0x404040) },
