@@ -9,14 +9,14 @@ import { Building } from '../entities/Building.js';
 import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
-import { ShaderManager } from './ShaderManager.js';
+
 
 export class Game {
     constructor() {
         // State
         this.lives = 20;
         this.score = 0;
-        this.cash = 1000;
+        this.cash = 10000;
         this.isGameOver = false;
         this.keys = { w: false, a: false, s: false, d: false };
         this.lastSpawnTime = 0;
@@ -24,10 +24,19 @@ export class Game {
         this.resourceManager = new ResourceManager();
         this.clock = new THREE.Clock();
 
+        this.gameMode = 'STANDARD';
+
         this.currentWaveIndex = 0;      // Kaçıncı dalgadayız?
         this.isWaveActive = false;      // Şu an savaş var mı?
         this.spawnQueue = [];           // Doğmayı bekleyen düşman listesi
         this.lastSpawnTime = 0;         // En son ne zaman düşman doğdu?
+        
+        // Raycasting for mouse interaction
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.groundTiles = [];          // Store tile meshes for raycasting
+        this.ghostTower = null;         // Preview tower
+        this.lastHoveredTile = null;    // Track which tile we're hovering
         
         // Entities Lists
         this.enemies = [];
@@ -35,13 +44,10 @@ export class Game {
         this.projectiles = [];
         this.interactables = [];
 
-        this.scene = new THREE.Scene();
-        this.shaderManager = new ShaderManager(this.scene);
-        this.resourceManager = new ResourceManager(this.shaderManager);
-
         // --- CAMERA STATE ---
         this.gameState = "PLAYING"; // "PLAYING", "TRANSITION", "CREDITS"
         this.isPaused = false;      // Oyunu durdurmak için
+        this.isMenuOpen = false;    // Dropdown menu açık mı?
         
         // Geçiş Değişkenleri
         this.transitionProgress = 0;
@@ -59,6 +65,18 @@ export class Game {
         this.rotateAxis = 'y';        // Current rotation axis ('x', 'y', 'z')
         this.rotateSpeed = 0.05;
         this.pickupRadius = 1.5;      // Physics radius for detection (optional visual aid)
+
+        // --- AUTO START & STATS ---
+        this.isAutoStart = false; // Otomatik başlatma açık mı?
+        this.towerStats = {};     // Hangi kuleden kaç tane dikildi? { 'Turret': 5, 'Shotgun': 2 }
+        
+        // Tower Stats'i sıfırla
+        TOWER_TYPES.forEach(t => this.towerStats[t.name] = 0);
+
+        this.bgMusic = new Audio('/assets/bg_music.mp3'); 
+        this.bgMusic.loop = true;   // Sürekli başa sarsın
+        this.bgMusic.volume = 0.3;  // Sesi %30 yapalım (Kullanıcıyı sağır etmeyelim)
+        this.isMuted = false;       // Başlangıçta sessiz değil
 
         this.init();
     }
@@ -86,6 +104,7 @@ export class Game {
         }
 
         // Scene Setup
+        this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x222222);
 
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -115,17 +134,36 @@ export class Game {
         // Lights
         const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
         this.scene.add(ambientLight);
+        
+        // Calculate map dimensions and center
+        const mapWidth = 20 * TILE_SIZE;   // 40 units
+        const mapDepth = 15 * TILE_SIZE;   // 30 units
+        const mapCenterX = (mapWidth - TILE_SIZE) / 2;  // 19
+        const mapCenterZ = (mapDepth - TILE_SIZE) / 2;  // 14
+        
         const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-        dirLight.position.set(10, 20, 10);
+        dirLight.position.set(mapCenterX, 30, mapCenterZ);
         dirLight.castShadow = true;
+        
+        // CRITICAL: Set light target to map center so shadow camera looks at the right place
+        dirLight.target.position.set(mapCenterX, 0, mapCenterZ);
+        this.scene.add(dirLight.target);  // Must add target to scene!
+        
+        // Shadow camera bounds (relative to target, not world origin)
+        const shadowMargin = 3;
+        dirLight.shadow.camera.left = -mapWidth / 2 - shadowMargin;
+        dirLight.shadow.camera.right = mapWidth / 2 + shadowMargin;
+        dirLight.shadow.camera.top = mapDepth / 2 + shadowMargin;
+        dirLight.shadow.camera.bottom = -mapDepth / 2 - shadowMargin;
+        dirLight.shadow.camera.near = 10;
+        dirLight.shadow.camera.far = 50;
+        
+        // High resolution shadow map
+        dirLight.shadow.mapSize.width = 4096;
+        dirLight.shadow.mapSize.height = 4096;
+        dirLight.shadow.bias = -0.0001;
+        
         this.scene.add(dirLight);
-
-        const textureLoader = new THREE.TextureLoader();
-        const skyTexture = textureLoader.load('/assets/skybox.jpg'); // Make sure you have this file!
-        skyTexture.mapping = THREE.EquirectangularReflectionMapping;
-        skyTexture.colorSpace = THREE.SRGBColorSpace; // Ensure colors look correct
-        this.scene.background = skyTexture;
-        this.scene.environment = skyTexture;
 
         // World Generation
         this.createLevel();
@@ -153,6 +191,8 @@ export class Game {
 
         window.addEventListener('mousemove', (e) => this.onMouseMove(e));
         window.addEventListener('mousedown', (e) => this.onMouseDown(e));
+        window.addEventListener('click', (e) => this.onMouseClick(e));
+        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
 
         this.updateUI();
 
@@ -212,55 +252,111 @@ export class Game {
     }
 
     injectUI() {
-        // --- 0. START SCREEN (BAŞLANGIÇ MENÜSÜ) ---
+        // --- 0. START SCREEN ---
         const startScreen = document.createElement('div');
         startScreen.id = 'start-screen';
-        // Arkaplan görseli için 'background-image' kısmına kendi görselinin yolunu koyabilirsin.
         startScreen.style = `
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background-color: #111;
-            background-image: url('https://via.placeholder.com/1920x1080/222/fff?text=Tower+Defense+BG'); 
-            background-size: cover; background-position: center;
+            /* Arkaplan görselin varsa buraya ekle */
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 200; font-family: sans-serif;
         `;
 
-        startScreen.innerHTML = `
-            <h1 style="font-size: 80px; color: #FFD700; text-shadow: 4px 4px 0 #000; margin-bottom: 10px;">TOWER DEFENSE??</h1>
-            <p style="color: white; font-size: 20px; margin-bottom: 40px; text-shadow: 1px 1px 0 #000;">Build, defend, survive!(Daha yaratıcı fikri olan değiştirebilir)</p>
-            <button id="btn-start-game" style="
-                padding: 20px 60px; font-size: 30px; font-weight: bold; cursor: pointer;
-                background: #28a745; color: white; border: none; border-radius: 10px;
-                box-shadow: 0 5px 0 #1e7e34; transition: transform 0.1s;">
-                PLAY GAME
-            </button>
+        // Kayıt var mı kontrol et
+        const stdSave = this.loadGameData('STANDARD');
+        const endlessSave = this.loadGameData('ENDLESS');
+
+        // HTML İçeriği
+        let menuHTML = `
+            <h1 style="font-size: 80px; color: #FFD700; text-shadow: 4px 4px 0 #000; margin-bottom: 10px;">TOWER DEFENSE</h1>
+            <p style="color: white; font-size: 20px; margin-bottom: 40px;">Select Game Mode</p>
+            
+            <div style="display: flex; gap: 40px;">
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-mode-standard" style="padding: 20px 40px; font-size: 24px; font-weight: bold; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 10px; min-width: 250px;">
+                        STANDARD MODE
+                    </button>
+                    ${stdSave ? `
+                    <button id="btn-continue-standard" style="padding: 10px; font-size: 16px; cursor: pointer; background: #1e7e34; color: #ddd; border: 1px solid #fff; border-radius: 5px;">
+                        Continue (Wave ${stdSave.waveIndex + 1})
+                    </button>` : ''}
+                </div>
+
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button id="btn-mode-endless" style="padding: 20px 40px; font-size: 24px; font-weight: bold; cursor: pointer; background: #dc3545; color: white; border: none; border-radius: 10px; min-width: 250px;">
+                        ENDLESS MODE
+                    </button>
+                    ${endlessSave ? `
+                    <button id="btn-continue-endless" style="padding: 10px; font-size: 16px; cursor: pointer; background: #a71d2a; color: #ddd; border: 1px solid #fff; border-radius: 5px;">
+                        Continue (Wave ${endlessSave.waveIndex + 1})
+                    </button>` : ''}
+                </div>
+            </div>
         `;
+
+        startScreen.innerHTML = menuHTML;
         document.body.appendChild(startScreen);
 
-        // Başlat Butonu Olayı
-        const startBtn = document.getElementById('btn-start-game');
-        startBtn.onclick = () => {
-            // Butona basınca animasyon efekti
-            startBtn.style.transform = "scale(0.95)";
-            setTimeout(() => {
-                this.startGame(); // Oyunu başlatan fonksiyonu çağır
-            }, 100);
+        // --- BUTON EVENTLERİ ---
+
+        // New Game: Standard
+        document.getElementById('btn-mode-standard').onclick = () => {
+            this.clearSave('STANDARD'); // Yeni oyun, eski kaydı sil
+            this.startGame('STANDARD');
         };
 
+        // New Game: Endless
+        document.getElementById('btn-mode-endless').onclick = () => {
+            this.clearSave('ENDLESS');
+            this.startGame('ENDLESS');
+        };
 
-        // --- 1. Tower Selection Bar (Başlangıçta GİZLİ) ---
+        // Continue: Standard
+        if (stdSave) {
+            document.getElementById('btn-continue-standard').onclick = () => {
+                this.startGame('STANDARD', true); // true = loadGame
+            };
+        }
+
+        // Continue: Endless
+        if (endlessSave) {
+            document.getElementById('btn-continue-endless').onclick = () => {
+                this.startGame('ENDLESS', true); // true = loadGame
+            };
+        }
+
+
+        // --- 1. Dropdown Tower Menu (Başlangıçta GİZLİ) ---
+        // Dropdown Toggle Button
+        const dropdownBtn = document.createElement('button');
+        dropdownBtn.id = 'dropdown-toggle';
+        dropdownBtn.innerHTML = '🏗️ BUILD MENU';
+        dropdownBtn.style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 12px 30px; font-size: 16px; font-weight: bold; background: rgba(0,150,0,0.8); color: white; border: 2px solid #00FF00; border-radius: 8px; cursor: pointer; z-index: 10; display: none; font-family: sans-serif;";
+        dropdownBtn.onclick = () => {
+            this.toggleBuildMenu();
+            dropdownBtn.blur(); // Remove focus to prevent space from re-triggering
+        };
+        document.body.appendChild(dropdownBtn);
+        
+        // Tower Selection Bar (Hidden by default)
         const bar = document.createElement('div');
-        bar.id = 'tower-bar'; // ID ekledik ki kolayca açıp kapatabilelim
-        bar.style = "position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: none; gap: 10px; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px; z-index: 10;";
+        bar.id = 'tower-bar';
+        bar.style = "position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%); display: none; gap: 10px; background: rgba(0,0,0,0.8); padding: 15px; border-radius: 8px; z-index: 10; border: 2px solid #00FF00;";
         
         TOWER_TYPES.forEach((type, index) => {
             const btn = document.createElement('div');
             btn.innerHTML = `<b>${type.name}</b><br>$${type.cost}`;
-            btn.style = "color: white; background: #444; padding: 10px; cursor: pointer; border: 2px solid transparent; text-align: center; font-family: sans-serif; font-size: 12px; min-width: 60px; user-select: none;";
+            btn.style = "color: white; background: #444; padding: 10px; cursor: pointer; border: 2px solid transparent; text-align: center; font-family: sans-serif; font-size: 12px; min-width: 60px; user-select: none; transition: all 0.2s;";
             btn.id = `btn-tower-${index}`;
-            btn.onclick = () => {
+            btn.onmouseover = () => { if (btn.style.borderColor !== 'rgb(0, 255, 0)') btn.style.background = '#555'; };
+            btn.onmouseout = () => { if (btn.style.borderColor !== 'rgb(0, 255, 0)') btn.style.background = '#444'; };
+            btn.onclick = (e) => {
+                e.stopPropagation(); // Prevent event bubbling
                 this.selectedTowerIndex = index;
                 this.updateTowerSelectionUI();
+                // Remove focus from button to prevent space key from re-triggering
+                btn.blur();
             };
             bar.appendChild(btn);
         });
@@ -275,13 +371,52 @@ export class Game {
         document.getElementById('btn-confirm-del').onclick = () => this.confirmDelete();
         document.getElementById('btn-cancel-del').onclick = () => this.cancelDelete();
 
-        // --- 3. Score Board (Başlangıçta GİZLİ) ---
-        if (!document.getElementById('score-board')) {
-            const sb = document.createElement('div');
+        // --- MEVCUT SCORE BOARD GÜNCELLEMESİ ---
+        // Eğer varsa içini temizle veya yeniden oluştur
+        let sb = document.getElementById('score-board');
+        if (!sb) {
+            sb = document.createElement('div');
             sb.id = 'score-board';
-            sb.style = "position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.5); padding: 10px; font-family: sans-serif; user-select: none; display: none;";
+            sb.style = "position: absolute; top: 10px; left: 10px; color: white; background: rgba(0,0,0,0.5); padding: 10px; font-family: sans-serif; user-select: none; display: none; border-radius: 5px;";
             document.body.appendChild(sb);
         }
+
+        // --- AUTO START BUTONU ---
+        const autoBtn = document.createElement('div');
+        autoBtn.id = 'btn-auto-start';
+        autoBtn.style = `
+            position: absolute; bottom: 80px; right: 20px;
+            width: 40px; height: 40px; 
+            background: #333; border: 2px solid #555; border-radius: 5px;
+            display: none; cursor: pointer;
+            align-items: center; justify-content: center; z-index: 10;
+        `;
+        
+        // İçindeki Üçgen (CSS ile yapıyoruz)
+        const triangle = document.createElement('div');
+        triangle.id = 'auto-start-icon';
+        triangle.style = `
+            width: 0; height: 0; 
+            border-top: 8px solid transparent;
+            border-bottom: 8px solid transparent;
+            border-left: 14px solid #FF0000; /* Başlangıçta Kırmızı */
+            margin-left: 4px; /* Ortalamak için */
+        `;
+        
+        autoBtn.appendChild(triangle);
+        
+        // Tıklama Olayı
+        autoBtn.onclick = () => {
+            this.isAutoStart = !this.isAutoStart;
+            // Rengi değiştir
+            triangle.style.borderLeftColor = this.isAutoStart ? '#00FF00' : '#FF0000';
+            
+            // Eğer dalga aktif değilse ve auto açıldıysa hemen başlat (Opsiyonel)
+            if (this.isAutoStart && !this.isWaveActive) {
+                this.startNextWave();
+            }
+        };
+        document.body.appendChild(autoBtn);
 
         // --- 4. Game Over Screen (Aynen Kalıyor) ---
         const goScreen = document.createElement('div');
@@ -314,6 +449,23 @@ export class Game {
         // startGame() içinde görünür yapabilirsin. Şimdilik görünür ekliyoruz.
         document.body.appendChild(waveBtn);
 
+        // --- YENİ BİTİŞ EKRANI (STATS SCREEN) ---
+        const endScreen = document.createElement('div');
+        endScreen.id = 'end-screen';
+        endScreen.style = `
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.9); 
+            color: white; 
+            display: none; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            font-family: 'Arial', sans-serif; 
+            z-index: 200;
+        `;
+        // İçerik dinamik doldurulacak
+        document.body.appendChild(endScreen);
+
         // --- 5. HELP OVERLAY (YARDIM MENÜSÜ) ---
         const helpOverlay = document.createElement('div');
         helpOverlay.id = 'help-overlay';
@@ -337,9 +489,21 @@ export class Game {
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; font-size: 20px;">
                 <div style="font-weight: bold; color: #aaa;">W, A, S, D</div>
                 <div>Move Character</div>
+                
+                <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
+                <div>Place Tower (menu must be open)</div>
 
+                <div style="font-weight: bold; color: #aaa;">Mouse Wheel</div>
+                <div>Zoom Camera</div>
+                
+                <div style="font-weight: bold; color: #aaa;">Mouse Right</div>
+                <div>Rotate Camera</div>
+                
                 <div style="font-weight: bold; color: #aaa;">SPACE</div>
-                <div>Build / Sell Tower</div>
+                <div>Sell Tower (stand on tower)</div>
+
+                <div style="font-weight: bold; color: #aaa;">B</div>
+                <div>Toggle Build Menu</div>
 
                 <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
                 <div>Select Tower Type / Pick Up Toy</div>
@@ -363,10 +527,66 @@ export class Game {
                 <div>Change Toy Rotation Axis</div>
             </div>
 
+            <button id="btn-exit-menu" style="margin-top: 30px; padding: 10px 30px; background: #dc3545; color: white; border: none; border-radius: 5px; font-size: 18px; cursor: pointer;">
+                SAVE & EXIT TO MENU
+            </button>
+            <p style="margin-top: 40px; font-style: italic; color: #888;">Reminder: Leaving the game deletes all of your buildings sell or lose all of them.</p>
+
             <p style="margin-top: 40px; font-style: italic; color: #888;">Press 'H' to Resume Game</p>
+
+            <div style="position: absolute; bottom: 130px; right: 40px; text-align: center; color: #00FF00;">
+            <div style="font-size: 14px; margin-bottom: 5px;">Auto Start Next Wave</div>
+            <div style="font-size: 60px; line-height: 20px;">&#8600;</div> </div>
         `;
 
         document.body.appendChild(helpOverlay);
+
+        // Ana Menü Butonu Olayı
+        document.getElementById('btn-exit-menu').onclick = () => {
+            this.saveGame(); // Çıkarken kaydet
+            window.location.reload(); // Sayfayı yenileyerek ana menüye dön (En temiz yöntem)
+        };
+
+        // --- MUSIC TOGGLE BUTTON ---
+        const muteBtn = document.createElement('div');
+        muteBtn.id = 'btn-mute';
+        muteBtn.style = `
+            position: absolute; top: 20px; right: 20px;
+            width: 50px; height: 50px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 2px solid #fff; border-radius: 50%;
+            color: white; font-size: 24px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 300; user-select: none;
+            transition: background 0.2s;
+        `;
+        
+        // Hoparlör ikonu (Emoji kullanıyoruz, pratik çözüm)
+        muteBtn.innerText = '🔊';
+
+        muteBtn.onclick = () => this.toggleMusic();
+        
+        // Hover efekti
+        muteBtn.onmouseenter = () => muteBtn.style.background = 'rgba(255, 255, 255, 0.2)';
+        muteBtn.onmouseleave = () => muteBtn.style.background = 'rgba(0, 0, 0, 0.5)';
+
+        document.body.appendChild(muteBtn);
+    }
+
+    toggleMusic() {
+        const btn = document.getElementById('btn-mute');
+        
+        if (this.isMuted) {
+            // Sesi Aç
+            this.bgMusic.play().catch(e => console.log("Audio play failed:", e));
+            this.isMuted = false;
+            if (btn) btn.innerText = '🔊'; // Sesli ikonu
+        } else {
+            // Sesi Kapat
+            this.bgMusic.pause();
+            this.isMuted = true;
+            if (btn) btn.innerText = '🔇'; // Sessiz ikonu
+        }
     }
 
     updateTowerSelectionUI() {
@@ -375,19 +595,270 @@ export class Game {
         // Seçili olanı yeşil yap
         const activeBtn = document.getElementById(`btn-tower-${this.selectedTowerIndex}`);
         if(activeBtn) activeBtn.style.borderColor = "#00FF00";
+        
+        // Recreate ghost tower when selection changes
+        if (this.isMenuOpen) {
+            this.createGhostTower();
+        }
     }
 
-    startGame() {
+    toggleBuildMenu() {
+        this.isMenuOpen = !this.isMenuOpen;
+        const towerBar = document.getElementById('tower-bar');
+        const dropdownBtn = document.getElementById('dropdown-toggle');
+        
+        if (this.isMenuOpen) {
+            towerBar.style.display = 'flex';
+            dropdownBtn.innerHTML = '✖ CLOSE MENU';
+            dropdownBtn.style.background = 'rgba(150,0,0,0.8)';
+            dropdownBtn.style.borderColor = '#FF0000';
+            this.showGrid();
+            this.createGhostTower();
+        } else {
+            towerBar.style.display = 'none';
+            dropdownBtn.innerHTML = '🏗️ BUILD MENU';
+            dropdownBtn.style.background = 'rgba(0,150,0,0.8)';
+            dropdownBtn.style.borderColor = '#00FF00';
+            this.hideGrid();
+            this.hideGhostTower();
+        }
+    }
+
+    showGrid() {
+        // Create grid lines if they don't exist
+        if (!this.gridHelper) {
+            const gridGroup = new THREE.Group();
+            
+            // Grid lines should be at tile edges, not centers
+            // Tiles are centered at (col*TILE_SIZE, row*TILE_SIZE) and extend ±TILE_SIZE/2
+            // So edges are at (col - 0.5) * TILE_SIZE
+            
+            // Create vertical lines (along Z axis) - 21 lines for 20 columns
+            for (let col = 0; col <= 20; col++) {
+                const xPos = (col - 0.5) * TILE_SIZE;
+                const points = [
+                    new THREE.Vector3(xPos, 0.3, -TILE_SIZE / 2),
+                    new THREE.Vector3(xPos, 0.3, 15 * TILE_SIZE - TILE_SIZE / 2)
+                ];
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x00FF00, 
+                    transparent: true, 
+                    opacity: 0.5 
+                });
+                const line = new THREE.Line(geometry, material);
+                gridGroup.add(line);
+            }
+            
+            // Create horizontal lines (along X axis) - 16 lines for 15 rows
+            for (let row = 0; row <= 15; row++) {
+                const zPos = (row - 0.5) * TILE_SIZE;
+                const points = [
+                    new THREE.Vector3(-TILE_SIZE / 2, 0.3, zPos),
+                    new THREE.Vector3(20 * TILE_SIZE - TILE_SIZE / 2, 0.3, zPos)
+                ];
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ 
+                    color: 0x00FF00, 
+                    transparent: true, 
+                    opacity: 0.5 
+                });
+                const line = new THREE.Line(geometry, material);
+                gridGroup.add(line);
+            }
+            
+            this.gridHelper = gridGroup;
+            this.scene.add(this.gridHelper);
+        } else {
+            this.gridHelper.visible = true;
+        }
+    }
+
+    hideGrid() {
+        if (this.gridHelper) {
+            this.gridHelper.visible = false;
+        }
+    }
+
+    createGhostTower() {
+        if (this.ghostTower) {
+            this.hideGhostTower();
+        }
+
+        const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
+        const modelKey = typeInfo.modelKey;
+        
+        // Clone the model for ghost preview
+        const model = this.resourceManager.getModel(modelKey);
+        const ghostModel = model.clone();
+        
+        // Make it semi-transparent
+        ghostModel.traverse((child) => {
+            if (child.isMesh) {
+                child.material = child.material.clone();
+                child.material.transparent = true;
+                child.material.opacity = 0.5;
+                child.material.depthWrite = false;
+            }
+        });
+
+        ghostModel.scale.set(typeInfo.modelScale, typeInfo.modelScale, typeInfo.modelScale);
+        ghostModel.visible = false;
+        
+        this.ghostTower = ghostModel;
+        this.scene.add(this.ghostTower);
+    }
+
+    hideGhostTower() {
+        if (this.ghostTower) {
+            this.scene.remove(this.ghostTower);
+            this.ghostTower = null;
+        }
+    }
+
+    updateGhostTower(gridX, gridZ, isValid) {
+        if (!this.ghostTower) return;
+
+        // Position ghost at grid location
+        this.ghostTower.position.set(gridX * TILE_SIZE, 1, gridZ * TILE_SIZE);
+        this.ghostTower.visible = true;
+
+        // Change color based on validity
+        this.ghostTower.traverse((child) => {
+            if (child.isMesh) {
+                if (isValid) {
+                    child.material.color.setHex(0x00FF00); // Green for valid
+                } else {
+                    child.material.color.setHex(0xFF0000); // Red for invalid
+                }
+            }
+        });
+    }
+
+    onMouseMove(e) {
+        if (!this.isMenuOpen || this.isGameOver) {
+            if (this.ghostTower) this.ghostTower.visible = false;
+            return;
+        }
+
+        // Calculate mouse position
+        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        // Update raycaster
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Check intersection with ground tiles
+        const intersects = this.raycaster.intersectObjects(this.groundTiles);
+
+        if (intersects.length > 0) {
+            const hoveredTile = intersects[0].object;
+            const gridX = hoveredTile.userData.gridX;
+            const gridZ = hoveredTile.userData.gridZ;
+
+            // Check if we need to recreate ghost (tower type changed)
+            const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
+            if (this.ghostTower && this.ghostTower.userData.towerType !== this.selectedTowerIndex) {
+                this.createGhostTower();
+            }
+            if (this.ghostTower) {
+                this.ghostTower.userData.towerType = this.selectedTowerIndex;
+            }
+
+            // Check if placement is valid
+            const tileType = hoveredTile.userData.tileType;
+            const existingTower = this.towers.find(t => {
+                const tPos = t.mesh.position;
+                return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
+            });
+
+            const isValid = tileType === 1 && !existingTower && this.cash >= typeInfo.cost;
+            
+            this.updateGhostTower(gridX, gridZ, isValid);
+        } else {
+            // Hide ghost when not hovering over tiles
+            if (this.ghostTower) this.ghostTower.visible = false;
+        }
+    }
+
+    hideGrid() {
+        if (this.gridHelper) {
+            this.gridHelper.visible = false;
+        }
+    }
+
+    saveGame() {
+        // Sadece dalga arası (Wave Active değilken) veya çıkışta kaydetmek en güvenlisidir.
+        const saveData = {
+            waveIndex: this.currentWaveIndex,
+            cash: this.cash,
+            lives: this.lives,
+            score: this.score,
+            towerStats: this.towerStats,
+            // Not: Kulelerin yerlerini kaydetmek çok karmaşık olduğu için
+            // basit sistemde oyuncuya parasını verip leveli baştan kurduruyoruz.
+        };
+        
+        // Moduna göre ayrı isimle kaydet (save_STANDARD, save_ENDLESS)
+        localStorage.setItem(`td_save_${this.gameMode}`, JSON.stringify(saveData));
+        console.log("Game Saved:", this.gameMode);
+    }
+
+    loadGameData(mode) {
+        const data = localStorage.getItem(`td_save_${mode}`);
+        return data ? JSON.parse(data) : null;
+    }
+
+    clearSave(mode) {
+        localStorage.removeItem(`td_save_${mode}`);
+    }
+
+    startGame(mode, loadSave = false) {
+        this.gameMode = mode;
+
         // 1. Menüyü gizle
         const startScreen = document.getElementById('start-screen');
         if (startScreen) startScreen.style.display = 'none';
 
-        // 2. Oyun UI elemanlarını görünür yap
-        const towerBar = document.getElementById('tower-bar');
-        const scoreBoard = document.getElementById('score-board');
+        // Eğer Kayıttan Devam ediyorsak verileri yükle
+        if (loadSave) {
+            const savedData = this.loadGameData(mode);
+            if (savedData) {
+                this.currentWaveIndex = savedData.waveIndex;
+                this.cash = savedData.cash;
+                this.lives = savedData.lives;
+                this.score = savedData.score;
+                this.towerStats = savedData.towerStats;
+                console.log("Game Loaded from Wave: " + this.currentWaveIndex);
+            }
+        } else {
+            // Yeni oyun ise sıfırla (Constructor'daki defaultlar kalabilir ama garanti olsun)
+            this.currentWaveIndex = 0;
+            this.cash = 10000;
+            this.lives = 20;
+            this.score = 0;
+        }
+
+        // Auto Start butonunu göster
+        const autoBtn = document.getElementById('btn-auto-start');
+        if (autoBtn) autoBtn.style.display = 'flex';
+
+        const dropdownBtn = document.getElementById('dropdown-toggle');
+        if (dropdownBtn) dropdownBtn.style.display = 'block';
+
+        if (!this.isMuted) {
+            // .play() bir Promise döndürür, hata olursa (tarayıcı engellerse) yakalayalım
+            this.bgMusic.play().catch(error => {
+                console.warn("Otomatik oynatma engellendi, kullanıcı etkileşimi bekleniyor.", error);
+            });
+        }
         
-        if (towerBar) towerBar.style.display = 'flex';
-        if (scoreBoard) scoreBoard.style.display = 'block';
+        // Eğer 'Continue' dediğimizde dalga butonunun metnini güncellememiz gerekir
+        const waveBtn = document.getElementById('btn-next-wave');
+        if (waveBtn) {
+            waveBtn.innerText = `START WAVE ${this.currentWaveIndex + 1}`;
+            waveBtn.style.display = 'block';
+        }
 
         // 3. Oyun döngüsünü başlat
         this.updateTowerSelectionUI(); // Seçimi görselleştir
@@ -428,51 +899,118 @@ export class Game {
     }
 
     startNextWave() {
-        // Eğer dalga zaten sürüyorsa veya tüm dalgalar bittiyse işlem yapma
-        if (this.isWaveActive || this.currentWaveIndex >= WAVE_DATA.length) return;
+        if (this.isWaveActive) return;
 
-        const waveData = WAVE_DATA[this.currentWaveIndex];
+        // --- ENDLESS MOD MANTIĞI ---
+        let waveData;
+
+        // Durum 1: Halihazırda tanımlı dalgalar (İlk 20 level)
+        if (this.currentWaveIndex < WAVE_DATA.length) {
+            waveData = WAVE_DATA[this.currentWaveIndex];
+        } 
+        // Durum 2: Tanımlı dalgalar bitti (Level 21+)
+        else {
+            // Eğer STANDART moddaysak oyun zaten bitmiş olmalıydı (endWave kontrol ediyor)
+            // Ama ENDLESS moddaysak yeni dalga üretiyoruz:
+            if (this.gameMode === 'ENDLESS') {
+                waveData = this.generateEndlessWave(this.currentWaveIndex);
+            } else {
+                return; // Hata koruması
+            }
+        }
+
+        // --- MEVCUT SPAWN MANTIĞI ---
         this.spawnQueue = [];
-
-        // 1. Düşmanları listeye doldur
-        // Örn: { normal: 2, ice_golem: 1 } => ['normal', 'normal', 'ice_golem']
+        
+        // waveData içinden düşmanları kuyruğa ekle
         for (const [typeKey, count] of Object.entries(waveData.enemies)) {
             for (let i = 0; i < count; i++) {
                 this.spawnQueue.push(typeKey);
             }
         }
-
-        // 2. Listeyi Karıştır (Shuffle) - Rastgele gelmeleri için
+        
         this.spawnQueue.sort(() => Math.random() - 0.5);
 
-        // 3. Dalgayı Aktif Et
-        this.isWaveActive = true;
+        // Spawn Delay ve Health Multiplier ayarları
+        // Not: generateEndlessWave fonksiyonu bu değerleri de döndürecek.
+        // Eğer normal waves ise spawnDelay zaten var. Multiplier'ı da spawnEnemy'de kullanıyoruz.
         
-        // 4. Butonu Gizle
-        const btn = document.getElementById('btn-next-wave');
-        if (btn) btn.style.display = 'none';
+        // Bu değerleri Game sınıfına geçici olarak kaydedebilirsin ki spawnEnemy erişebilsin
+        this.currentWaveData = waveData; 
+
+        this.isWaveActive = true;
+        document.getElementById('btn-next-wave').style.display = 'none';
+        this.updateUI();
+    }
+
+    generateEndlessWave(levelIndex) {
+        // 20. levelden sonra ne kadar ilerledik?
+        const endlessLevel = levelIndex - WAVE_DATA.length + 1; 
+
+        // Çarpanlar (Her tur %10 - %20 zorlaşsın)
+        // Örnek: Level 21 için multiplier 5.0 (son wave) * 1.1
+        const healthMult = 5.0 + (endlessLevel * 0.5); 
+        
+        // Düşman Sayısı (Her tur biraz artsın ama 100-150 civarında sınırlansın ki CPU yanmasın)
+        const baseCount = 50; 
+        const totalEnemies = Math.min(150, baseCount + (endlessLevel * 5));
+
+        // Spawn Delay (Düşmanlar hızla gelsin, min 100ms)
+        const delay = Math.max(100, 200 - (endlessLevel * 5));
+
+        // Düşman Dağılımı (Rastgelelik katalım)
+        // İlerledikçe güçlü düşman oranı artar
+        const impRatio = Math.min(0.5, 0.2 + (endlessLevel * 0.01)); // %50'ye kadar çıkar
+        const golemRatio = Math.min(0.4, 0.2 + (endlessLevel * 0.01)); // %40'a kadar çıkar
+        
+        const impCount = Math.floor(totalEnemies * impRatio);
+        const golemCount = Math.floor(totalEnemies * golemRatio);
+        const normalCount = totalEnemies - impCount - golemCount;
+
+        return {
+            enemies: {
+                normal: normalCount,
+                ice_golem: golemCount,
+                fire_imp: impCount
+            },
+            spawnDelay: delay,
+            healthMultiplier: healthMult
+        };
     }
 
     endWave() {
         this.isWaveActive = false;
         this.currentWaveIndex++; // Bir sonraki dalgaya geç
 
+        // --- STANDARD MOD BİTİŞİ ---
+        if (this.gameMode === 'STANDARD' && this.currentWaveIndex >= WAVE_DATA.length) {
+            this.showEndStats("VICTORY!", "#28a745");
+            return;
+        }
+        
+        // --- ENDLESS MOD (Asla bitmez, sadece ölünce biter) ---
+        // Eğer index 20'yi geçerse buton yine de görünsün
+        
+        // Buton Yönetimi (Auto Start vb.)
         const btn = document.getElementById('btn-next-wave');
-        if (btn) {
-            // Oyun bitti mi kontrolü
-            if (this.currentWaveIndex >= WAVE_DATA.length) {
-                btn.innerText = "VICTORY! (Restart)";
-                btn.onclick = () => window.location.reload();
-                btn.style.background = "#28a745"; // Yeşil renk
-            } else {
+        
+        if (this.isAutoStart) {
+            if (btn) btn.style.display = 'none';
+            setTimeout(() => {
+                if (!this.isGameOver) this.startNextWave();
+            }, 2000); 
+        } else {
+            if (btn) {
+                // Level 21, 22... diye yazsın
                 btn.innerText = `START WAVE ${this.currentWaveIndex + 1}`;
+                btn.style.display = 'block';
             }
-            btn.style.display = 'block'; // Butonu tekrar göster
         }
         
         // İstersen dalga bitince oyuncuya bonus para ver
         this.cash += 100;
         this.updateUI();
+        this.saveGame();
     }
 
     onKeyDown(e) {
@@ -488,9 +1026,24 @@ export class Game {
 
         this.keys[key] = true;
         
-        // Normal oyun akışında Space'e basılırsa
+        // 'B' tuşu: Build menüsünü aç/kapa
+        if (key === 'b') this.toggleBuildMenu();
+        
+        // Space artık sadece kule silmek için (oyuncu üzerindeyse)
         if (key === ' ') {
-            this.handleSpaceInteraction();
+            this.handleSpaceSellTower();
+        }
+
+        if (key === 'p') {
+            this.shaderManager.toggleShaders();
+        }
+
+        if (key === 'r') {
+            if (this.rotateAxis === 'x') this.rotateAxis = 'y';
+            else if (this.rotateAxis === 'y') this.rotateAxis = 'z';
+            else this.rotateAxis = 'x';
+            console.log("Rotation Axis:", this.rotateAxis);
+            this.updateUI(); // Optional: display current axis
         }
 
         if (key === 'p') {
@@ -516,6 +1069,51 @@ export class Game {
             } else if (this.gameState === "CREDITS") {
                 this.startTransitionToGame();
             }
+        }
+    }
+
+    onMouseClick(e) {
+        // Ignore clicks on UI elements
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'DIV' && e.target.id.includes('btn')) {
+            return;
+        }
+        
+        if (this.isGameOver || !this.isMenuOpen) return;
+
+        // Calculate mouse position in normalized device coordinates (-1 to +1)
+        this.mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+        // Update raycaster
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // Check intersection with ground tiles
+        const intersects = this.raycaster.intersectObjects(this.groundTiles);
+        
+
+        if (intersects.length > 0) {
+            const clickedTile = intersects[0].object;
+            const gridX = clickedTile.userData.gridX;
+            const gridZ = clickedTile.userData.gridZ;
+            
+            // Attempt to build tower at clicked position
+            this.attemptBuild(gridX, gridZ);
+        }
+    }
+
+    handleSpaceSellTower() {
+        const pos = this.player.getGridPosition();
+        
+        // Check if there's a tower where the player is standing
+        const existingTower = this.towers.find(t => {
+            const tPos = t.mesh.position;
+            return Math.round(tPos.x / TILE_SIZE) === pos.x && Math.round(tPos.z / TILE_SIZE) === pos.z;
+        });
+
+        if (existingTower) {
+            // Start delete confirmation
+            this.pendingDeleteTower = existingTower;
+            document.getElementById('delete-overlay').style.display = 'block';
         }
     }
 
@@ -546,6 +1144,16 @@ export class Game {
             return;
         }
 
+        // Check if there's already a tower at this position
+        const existingTower = this.towers.find(t => {
+            const tPos = t.mesh.position;
+            return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
+        });
+
+        if (existingTower) {
+            return;
+        }
+
         const typeInfo = TOWER_TYPES[this.selectedTowerIndex];
         
         if (this.cash >= typeInfo.cost) {
@@ -553,6 +1161,7 @@ export class Game {
             // Modüler yapıda Building sınıfını kullanıyoruz
             const tower = new Building(this.scene, this.resourceManager, typeInfo.modelScale, typeInfo, gridX, gridZ);
             this.towers.push(tower);
+            this.towerStats[typeInfo.name]++;
             this.updateUI();
         } else {
             console.log("Yetersiz para!");
@@ -645,10 +1254,13 @@ export class Game {
                 let type = MAP_LAYOUT[row][col];
                 let material = type === 1 ? matBuildable : (type === 2 ? matGoal : matPath);
                 const tile = new THREE.Mesh(geometry, material);
-                this.shaderManager.applyCustomMaterial(tile);
                 tile.position.set(col * TILE_SIZE, 0, row * TILE_SIZE);
                 tile.receiveShadow = true;
+                tile.userData.gridX = col;
+                tile.userData.gridZ = row;
+                tile.userData.tileType = type;
                 this.scene.add(tile);
+                this.groundTiles.push(tile);
             }
         }
 
@@ -687,12 +1299,21 @@ export class Game {
     }
 
     spawnEnemy(typeKey) {
-        // String olarak gelen key'i (örn: "ice_golem"), ENEMY_TYPES dizisinde arayıp buluyoruz
-        const typeDef = ENEMY_TYPES.find(e => e.type === typeKey);
+        // 1. Düşman tipinin temel özelliklerini al (Can, Hız vb.)
+        const baseStats = ENEMY_TYPES.find(e => e.type === typeKey);
 
-        if (typeDef) {
-            // Enemy sınıfına direkt bulduğumuz objeyi gönderiyoruz (Senin Enemy.js yapına uygun)
-            const enemy = new Enemy(this.scene, typeDef);
+        if (baseStats) {
+            // 2. Şu anki dalganın bilgilerini al
+            const currentWave = this.currentWaveData || WAVE_DATA[this.currentWaveIndex];
+            const multiplier = currentWave.healthMultiplier || 1;
+
+            const finalStats = {
+                ...baseStats,
+                hp: baseStats.hp * multiplier
+            };
+
+            // 4. Enemy sınıfına güncellenmiş (güçlendirilmiş) özellikleri gönder
+            const enemy = new Enemy(this.scene, finalStats);
             this.enemies.push(enemy);
         }
     }
@@ -931,19 +1552,88 @@ export class Game {
         if (this.isGameOver) return; // Zaten bitmişse tekrar çalıştırma
 
         this.isGameOver = true;
-        
-        // Final skorunu yazdır
-        const scoreSpan = document.getElementById('final-score');
-        if (scoreSpan) scoreSpan.innerText = this.score;
+        this.showEndStats("GAME OVER", "#DC3545");
+    }
 
-        // Ekranı görünür yap (display: flex sayesinde ortalanır)
-        const screen = document.getElementById('game-over-screen');
-        if (screen) screen.style.display = 'flex';
+    showEndStats(title, color) {
+        const screen = document.getElementById('end-screen');
+        const autoBtn = document.getElementById('btn-auto-start');
+        const waveBtn = document.getElementById('btn-next-wave');
+        
+        // Diğer butonları gizle
+        if (autoBtn) autoBtn.style.display = 'none';
+        if (waveBtn) waveBtn.style.display = 'none';
+
+        // İstatistik HTML'ini oluştur
+        let statsHTML = `
+            <h1 style="font-size: 60px; margin-bottom: 20px; color: ${color}; text-shadow: 2px 2px 0 #000;">${title}</h1>
+            
+            <div style="background: rgba(255,255,255,0.1); padding: 30px; border-radius: 10px; min-width: 400px;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:22px;">
+                    <span>Total Score:</span> <span style="color:#FFD700">${this.score}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:22px;">
+                    <span>Waves Survived:</span> <span>${this.currentWaveIndex} / ${WAVE_DATA.length}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:22px;">
+                    <span>Remaining Lives:</span> <span style="color:#FF6666">${this.lives}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; margin-bottom:20px; font-size:22px;">
+                    <span>Remaining Cash:</span> <span style="color:#85bb65">$${this.cash}</span>
+                </div>
+                
+                <hr style="border:0; border-top:1px solid #555; margin: 20px 0;">
+                <h3 style="text-align:center; margin-bottom:15px;">Towers Built</h3>
+        `;
+
+        // Hangi binadan kaç tane dikildi?
+        for (const [name, count] of Object.entries(this.towerStats)) {
+            statsHTML += `
+                <div style="display:flex; justify-content:space-between; margin-bottom:5px; font-size:18px; color:#aaa;">
+                    <span>${name}:</span> <span>${count}</span>
+                </div>
+            `;
+        }
+
+        statsHTML += `
+            </div>
+            
+            <button id="btn-return-menu" style="
+                margin-top: 30px; 
+                padding: 15px 40px; 
+                font-size: 20px; 
+                cursor: pointer; 
+                background: #fff; 
+                border: none; 
+                border-radius: 5px; 
+                font-weight: bold;
+                transition: 0.2s;
+            ">RETURN TO MAIN MENU</button>
+        `;
+
+        screen.innerHTML = statsHTML;
+        screen.style.display = 'flex';
+
+        // Ana Menüye Dönüş (Sayfayı Yenile)
+        document.getElementById('btn-return-menu').onclick = () => {
+            window.location.reload();
+        };
     }
 
     updateUI() {
         const board = document.getElementById('score-board');
-        if(board) board.innerText = `Lives: ${this.lives} | Score: ${this.score} | Cash: $${this.cash}`;
+        if(board) {
+            // currentWaveIndex 0'dan başlar, o yüzden +1 ekliyoruz.
+            // Eğer oyun bittiyse (Index > Length) son leveli göster.
+            const displayWave = Math.min(this.currentWaveIndex + 1, WAVE_DATA.length);
+            
+            board.innerHTML = `
+                Wave: <span style="color:#FFD700">${displayWave} / ${WAVE_DATA.length}</span> | 
+                Lives: ${this.lives} | 
+                Score: ${this.score} | 
+                Cash: $${this.cash}
+            `;
+        }
     }
 
     onWindowResize() {
