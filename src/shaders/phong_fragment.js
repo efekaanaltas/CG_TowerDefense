@@ -11,7 +11,6 @@ export const phong_fragment = `
     uniform float uAlphaTest;
     uniform float uNormalScale;
     
-    // [NEW] Emissive Uniform
     uniform vec3 uEmissive;
 
     struct DirLight { vec3 direction; vec3 color; };
@@ -95,7 +94,6 @@ export const phong_fragment = `
         vec3 halfwaySpot = normalize(spotDir + viewDir);
         vec3 specularSpot = 10.0*spotLight.color * pow(max(dot(normal, halfwaySpot), 0.0), uShininess) * specularStrength * intensity * att;
 
-        // [UPDATED] Added uEmissive to final calculation
         vec3 finalColor = ambient + (diffuse + diffuseSpot) * finalBaseColor + (specular + specularSpot) + reflection/2.0 + uEmissive;
 
         gl_FragColor = vec4(finalColor, finalAlpha);

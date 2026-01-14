@@ -1,23 +1,16 @@
 import * as THREE from 'three';
-import { TILE_SIZE } from '../data/Constants.js';
+import { TILE_SIZE, MAP_LAYOUT } from '../data/Constants.js';
 
 export class Player {
     constructor(scene, resourceManager) {
         this.scene = scene;
         this.speed = 0.15;
 
-        // [DEĞİŞİKLİK] Küp yerine modeli yükle
         this.mesh = resourceManager.getModel('player');
-        
-        // Başlangıç Pozisyonu
-        this.mesh.position.set(2, 0.1, 2); // Y değerini modele göre ayarla (gömülmesin)
+        this.mesh.position.set(2, 0.1, 2);
 
-        // Ölçeklendirme (Model çok büyük veya küçükse buradan ayarla)
         const scale = 5;
         this.mesh.scale.set(scale, scale, scale); 
-
-        // Eğer modelin yüzü varsayılan olarak arkaya bakıyorsa döndür
-        // this.mesh.rotation.y = Math.PI;
 
         scene.add(this.mesh);
     }
@@ -44,7 +37,6 @@ export class Player {
         if (inputVector.length() > 0) {
             inputVector.normalize();
             
-            // Kameranın baktığı yöne göre hareket et
             const cameraDirection = new THREE.Vector3();
             camera.getWorldDirection(cameraDirection);
             const cameraAngle = Math.atan2(cameraDirection.x, cameraDirection.z);
@@ -52,13 +44,30 @@ export class Player {
             inputVector.applyAxisAngle(new THREE.Vector3(0, 1, 0), cameraAngle);
             this.mesh.position.addScaledVector(inputVector, this.speed);
 
-            // Karakteri gittiği yöne döndür
             const targetRotation = Math.atan2(inputVector.x, inputVector.z);
             let rotDiff = targetRotation - this.mesh.rotation.y;
-            // Açıyı normalize et (kısa yoldan dönmesi için)
             while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
             while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
             this.mesh.rotation.y += rotDiff * 0.2; 
+        }
+
+        const mapWidth = MAP_LAYOUT[0].length * TILE_SIZE;
+        const mapHeight = MAP_LAYOUT.length * TILE_SIZE;
+
+        const padding = 0.5; 
+
+        if (this.mesh.position.x < padding) {
+            this.mesh.position.x = padding;
+        } 
+        else if (this.mesh.position.x > mapWidth - padding - 1) {
+            this.mesh.position.x = mapWidth - padding - 1;
+        }
+
+        if (this.mesh.position.z < padding) {
+            this.mesh.position.z = padding;
+        } 
+        else if (this.mesh.position.z > mapHeight - padding - 1) {
+            this.mesh.position.z = mapHeight - padding - 1;
         }
     }
 }
