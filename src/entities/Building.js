@@ -55,7 +55,7 @@ export class Building {
             
             if (now - this.cooldown >= this.stats.fireRate){
                 const firePos = this.mesh.position.clone();
-                firePos.y += 2.8;
+                firePos.y += 1.8;
                 this.fire(closestEnemy, addProjectileCallback, firePos);
                 this.cooldown = now;
             }

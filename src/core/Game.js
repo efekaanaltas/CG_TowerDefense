@@ -1080,7 +1080,7 @@ onMouseMove(e) {
 
     startTransitionToCredits() {
         this.gameState = "TRANSITION";
-        this.isPaused = true;
+        //this.isPaused = true;
         this.transitionProgress = 0;
         
         this.startCamPos.copy(this.camera.position);
@@ -1159,19 +1159,33 @@ onMouseMove(e) {
     }
 
     createCreditsArea() {
-        const cx = 100;
-        const cz = 0;
-        const scale = 8;
+        // [MODIFIED] Cinematic Target Configuration
+        // Change cx/cz to specify the point you want to revolve around
+        const cx = 8;
+        const cz = 8;
+        const scale = 1;
 
         const credits = this.resourceManager.getModel('credits');
         credits.position.set(cx-10, 0, cz-2);
         credits.scale.set(scale, scale, scale);
-
         this.scene.add(credits);
         
-        this.creditsTarget = new THREE.Vector3(cx, 0, cz);
+        // 1. Define the point to look at (The Pivot)
+        this.creditsTarget = new THREE.Vector3(cx, 0, cz); // Look slightly up/center
         
-        this.creditsCameraPos = new THREE.Vector3(cx, 20, cz);
+        // 2. Define the starting position for the camera
+        // We set it at specific Radius (distance)
+        this.cinematicRadius = 5;
+        this.cinematicHeight = 3;
+        
+        // This is where the camera will land after the transition (Angle = 0)
+        this.creditsCameraPos = new THREE.Vector3(
+            cx + this.cinematicRadius, 
+            this.cinematicHeight, 
+            cz
+        );
+        
+        this.cinematicStartTime = 0; // Tracks when to start rotating
     }
 
     spawnEnemy(typeKey) {
@@ -1191,152 +1205,81 @@ onMouseMove(e) {
         }
     }
 
-    animate() {
+animate() {
         if (this.isGameOver) return;
         requestAnimationFrame(() => this.animate());
 
         const delta = this.clock.getDelta();
         const now = Date.now();
 
-        if (this.heldObject) {
-            const playerPos = this.player.mesh.position;
-            const playerRot = this.player.mesh.rotation.y;
+        // --- 1. GAME LOGIC (Run in PLAYING or CREDITS) ---
+        // We allow the game to run if not paused, OR if we are in credits mode (for the trailer)
+        if (!this.isPaused || this.gameState === "CREDITS") {
             
-            const cameraDir = new THREE.Vector3();
-            this.camera.getWorldDirection(cameraDir);
-            
-            const offsetX = Math.sin(playerRot) * this.holdDistance;
-            const offsetZ = Math.cos(playerRot) * this.holdDistance;
-            
-            const verticalOffset = cameraDir.y * 3.0; 
+            // --- HELD OBJECT LOGIC ---
+            if (this.heldObject) {
+                // ... (Keep existing pickup logic) ...
+                const playerPos = this.player.mesh.position;
+                const playerRot = this.player.mesh.rotation.y;
+                const cameraDir = new THREE.Vector3();
+                this.camera.getWorldDirection(cameraDir);
+                const offsetX = Math.sin(playerRot) * this.holdDistance;
+                const offsetZ = Math.cos(playerRot) * this.holdDistance;
+                const verticalOffset = cameraDir.y * 3.0; 
+                const targetPos = new THREE.Vector3(
+                    playerPos.x + offsetX,
+                    playerPos.y + 5 + verticalOffset,
+                    playerPos.z + offsetZ
+                );
+                this.heldObject.mesh.position.lerp(targetPos, 0.2);
+                if (this.keys['q']) this.heldObject.rotate(this.rotateAxis, -this.rotateSpeed);
+                if (this.keys['e']) this.heldObject.rotate(this.rotateAxis, this.rotateSpeed);
+            }
 
-            const targetPos = new THREE.Vector3(
-                playerPos.x + offsetX,
-                playerPos.y + 5 + verticalOffset,
-                playerPos.z + offsetZ
-            );
-            
-            this.heldObject.mesh.position.lerp(targetPos, 0.2);
+            // --- SPOTLIGHT LOGIC ---
+            if (this.spotlightInteractable) {
+                const mesh = this.spotlightInteractable.mesh;
+                const sourcePos = mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+                const localDir = new THREE.Vector3(0, -1, 0).normalize();
+                const worldDir = localDir.applyQuaternion(mesh.quaternion).normalize();
+                this.shaderManager.updateSpotLight(sourcePos, worldDir);
+            }
 
-            if (this.keys['q']) this.heldObject.rotate(this.rotateAxis, -this.rotateSpeed);
-            if (this.keys['e']) this.heldObject.rotate(this.rotateAxis, this.rotateSpeed);
-        }
-
-        if (this.spotlightInteractable) {
-            const mesh = this.spotlightInteractable.mesh;
-            
-            const sourcePos = mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0));
-            
-            const localDir = new THREE.Vector3(0, -1, 0).normalize();
-            
-            const worldDir = localDir.applyQuaternion(mesh.quaternion).normalize();
-            
-            this.shaderManager.updateSpotLight(sourcePos, worldDir);
-        }
-
-        if (this.gameState === "TRANSITION") {
-            this.transitionProgress += delta / this.transitionDuration;
-            
-            if (this.transitionProgress >= 1) {
-                this.transitionProgress = 1;
-                this.gameState = this.targetState;
+            // Player Update
+            // (Only update player movement if we are NOT in credits, 
+            // otherwise the camera moving might mess up inputs relative to camera view)
+            if (this.gameState !== "CREDITS") {
+                const oldPlayerPos = this.player.mesh.position.clone();
+                this.player.update(this.keys, this.camera);
+                const newPlayerPos = this.player.mesh.position;
+                const deltaX = newPlayerPos.x - oldPlayerPos.x;
+                const deltaZ = newPlayerPos.z - oldPlayerPos.z;
                 
-                if (this.gameState === "PLAYING") {
-                    this.isPaused = false;
-                    this.controls.enabled = true;
-                    this.controls.target.copy(this.endTarget);
-                    this.shaderManager.update(now);
-                } else {
-                    this.controls.enabled = false;
-                }
+                // Move Camera with Player ONLY in PLAYING state
+                this.camera.position.x += deltaX;
+                this.camera.position.z += deltaZ;
+                this.controls.target.copy(newPlayerPos);
+                this.controls.update();
             }
 
-            const t = this.transitionProgress;
-
-            this.controls.target.lerpVectors(this.startTarget, this.endTarget, t);
-
-            const risePhase = 0.20;
-            const travelPhase = 0.80;
-
-            const currentPos = new THREE.Vector3();
-
-            if (t < risePhase) {
-                const phaseT = t / risePhase;
-                
-                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
-
-                currentPos.copy(this.startCamPos);
-                currentPos.y = THREE.MathUtils.lerp(this.startCamPos.y, this.cruiseHeight, smoothT);
-            } 
-            else if (t < travelPhase) {
-                const phaseT = (t - risePhase) / (travelPhase - risePhase);
-                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
-
-                currentPos.x = THREE.MathUtils.lerp(this.startCamPos.x, this.endCamPos.x, smoothT);
-                currentPos.z = THREE.MathUtils.lerp(this.startCamPos.z, this.endCamPos.z, smoothT);
-                currentPos.y = this.cruiseHeight;
-            } 
-            else {
-                const phaseT = (t - travelPhase) / (1 - travelPhase);
-                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
-
-                currentPos.copy(this.endCamPos);
-                currentPos.y = THREE.MathUtils.lerp(this.cruiseHeight, this.endCamPos.y, smoothT);
-            }
-
-            this.camera.position.copy(currentPos);
-            
-            this.controls.update(); 
-
-            if (this.shaderManager) {
-                this.shaderManager.update(now); 
-            }
-            
-            this.renderer.render(this.scene, this.camera);
-            return;
-        }
-        if (this.gameState === "CREDITS") {
-            this.renderer.render(this.scene, this.camera);
-            return;
-        }
-
-        if(!this.isPaused){
-            const oldPlayerPos = this.player.mesh.position.clone();
-
-            this.player.update(this.keys, this.camera);
-
-            const newPlayerPos = this.player.mesh.position;
-            const deltaX = newPlayerPos.x - oldPlayerPos.x;
-            const deltaZ = newPlayerPos.z - oldPlayerPos.z;
-
-            this.camera.position.x += deltaX;
-            this.camera.position.z += deltaZ;
-
-            this.controls.target.copy(newPlayerPos);
-            
-            this.controls.update();
-
+            // Spawn & Update Enemies
             if (this.isWaveActive) {
                 const waveData = WAVE_DATA[this.currentWaveIndex];
-
                 if (this.spawnQueue.length > 0) {
                     if (now - this.lastSpawnTime > waveData.spawnDelay) {
-                        
                         const enemyType = this.spawnQueue.shift(); 
                         this.spawnEnemy(enemyType);
-                        
                         this.lastSpawnTime = now;
                     }
-                } 
-                else if (this.enemies.length === 0) {
+                } else if (this.enemies.length === 0) {
                     this.endWave();
                 }
             }
 
+            // Update Enemies
             for (let i = this.enemies.length - 1; i >= 0; i--) {
                 const enemy = this.enemies[i];
                 enemy.update();
-                
                 if (enemy.reachedGoal) {
                     this.lives--;
                     enemy.dispose();
@@ -1352,12 +1295,14 @@ onMouseMove(e) {
                 }
             }
 
+            // Update Towers
             this.towers.forEach(tower => {
                 tower.update(this.enemies, now, delta, (pos, dir, stats) => {
                     this.projectiles.push(new Projectile(this.scene, pos, dir, stats));
                 });
             });
 
+            // Update Projectiles
             for (let i = this.projectiles.length - 1; i >= 0; i--) {
                 const proj = this.projectiles[i];
                 proj.update(this.enemies);
@@ -1368,6 +1313,69 @@ onMouseMove(e) {
             }
         }
 
+        // --- 2. CAMERA STATE LOGIC ---
+
+        // TRANSITION STATE
+        if (this.gameState === "TRANSITION") {
+            this.transitionProgress += delta / this.transitionDuration;
+            
+            if (this.transitionProgress >= 1) {
+                this.transitionProgress = 1;
+                this.gameState = this.targetState;
+                
+                if (this.gameState === "PLAYING") {
+                    this.controls.enabled = true;
+                    this.controls.target.copy(this.endTarget);
+                } else {
+                    this.controls.enabled = false; 
+                    this.cinematicStartTime = now; // Start rotation time
+                }
+            }
+
+            const t = this.transitionProgress;
+            this.controls.target.lerpVectors(this.startTarget, this.endTarget, t);
+
+            const risePhase = 0.20;
+            const travelPhase = 0.80; 
+            const currentPos = new THREE.Vector3();
+
+            if (t < risePhase) {
+                const phaseT = t / risePhase;
+                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
+                currentPos.copy(this.startCamPos);
+                currentPos.y = THREE.MathUtils.lerp(this.startCamPos.y, this.cruiseHeight, smoothT);
+            } 
+            else if (t < travelPhase) {
+                const phaseT = (t - risePhase) / (travelPhase - risePhase);
+                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
+                currentPos.x = THREE.MathUtils.lerp(this.startCamPos.x, this.endCamPos.x, smoothT);
+                currentPos.z = THREE.MathUtils.lerp(this.startCamPos.z, this.endCamPos.z, smoothT);
+                currentPos.y = this.cruiseHeight;
+            } 
+            else {
+                const phaseT = (t - travelPhase) / (1 - travelPhase);
+                const smoothT = THREE.MathUtils.smoothstep(phaseT, 0, 1);
+                currentPos.copy(this.endCamPos);
+                currentPos.y = THREE.MathUtils.lerp(this.cruiseHeight, this.endCamPos.y, smoothT);
+            }
+
+            this.camera.position.copy(currentPos);
+            this.controls.update(); 
+        }
+
+        // CREDITS STATE (Cinematic Revolve)
+        else if (this.gameState === "CREDITS") {
+            const speed = 0.2; 
+            const elapsed = (now - this.cinematicStartTime) * 0.001 * speed;
+            
+            const camX = this.creditsTarget.x + Math.cos(elapsed) * this.cinematicRadius;
+            const camZ = this.creditsTarget.z + Math.sin(elapsed) * this.cinematicRadius;
+            
+            this.camera.position.set(camX, this.cinematicHeight, camZ);
+            this.camera.lookAt(this.creditsTarget);
+        }
+
+        // --- 3. RENDER ---
         this.shaderManager.update(now);
         this.renderer.render(this.scene, this.camera);
     }
