@@ -10,7 +10,6 @@ import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
 import { ShaderManager } from './ShaderManager.js';
-import { DangerPoints } from '../entities/DangerPoints.js';
 
 export class Game {
     constructor() {
@@ -41,7 +40,6 @@ export class Game {
         this.towers = [];
         this.projectiles = [];
         this.interactables = [];
-        this.dangerPoints = new DangerPoints(this.towers);
 
         this.scene = new THREE.Scene();
         this.shaderManager = new ShaderManager(this.scene);
@@ -233,7 +231,18 @@ export class Game {
         startScreen.style = `
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background-color: #111;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            
+            background-image: url('/assets/menu_bg.jpeg'); 
+            
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+
+            display: flex; flex-direction: column; align-items: center;
+            
+            justify-content: flex-start;
+            padding-top: 350px;
+            box-sizing: border-box;
             z-index: 200; font-family: sans-serif;
         `;
 
@@ -241,8 +250,7 @@ export class Game {
         const endlessSave = this.loadGameData('ENDLESS');
 
         let menuHTML = `
-            <h1 style="font-size: 80px; color: #FFD700; text-shadow: 4px 4px 0 #000; margin-bottom: 10px;">TOWER DEFENSE</h1>
-            <p style="color: white; font-size: 20px; margin-bottom: 40px;">Select Game Mode</p>
+            <p style="color: white; font-size: 40px; color: #FFD700; margin-bottom: 40px;">Select Game Mode</p>
             
             <div style="display: flex; gap: 40px;">
                 <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -1057,7 +1065,6 @@ onMouseMove(e) {
             this.towers.push(tower);
             this.towerStats[typeInfo.name]++;
             this.updateUI();
-            this.dangerPoints.calculateAllDangerPoints();
         } else {
             console.log("Yetersiz para!");
         }
