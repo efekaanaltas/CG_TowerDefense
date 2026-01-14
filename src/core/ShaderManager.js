@@ -35,7 +35,6 @@ export class ShaderManager {
             envMap: { value: null }
         };
         
-        // Define both shader pairs
         this.shaderDefs = {
             phong: { vertexShader: phong_vertex, fragmentShader: phong_fragment },
             toon: { vertexShader: toon_vertex, fragmentShader: toon_fragment }
@@ -51,19 +50,15 @@ export class ShaderManager {
         console.log("Switching Shader to:", this.isAlternateShader ? "Toon" : "Phong");
 
         this.materials.forEach(mat => {
-            // 1. Swap the shader source
             mat.vertexShader = newDef.vertexShader;
             mat.fragmentShader = newDef.fragmentShader;
             
-            // 2. [IMPORTANT] Update uniforms specific to the mode
             if (this.isAlternateShader) {
-                // Toon Mode: Ensure materialColor is set (uses original color)
                 if (mat.userData.originalColor) {
                     mat.uniforms.materialColor.value.copy(mat.userData.originalColor);
                 }
             } 
             
-            // 3. Trigger recompile
             mat.needsUpdate = true;
         });
     }
@@ -77,7 +72,6 @@ export class ShaderManager {
         const oldMat = mesh.material;
         const geom = mesh.geometry;
         
-        // Tangent calculations
         const hasUV = geom.attributes.uv !== undefined;
         const hasNormal = geom.attributes.normal !== undefined;
         const hasIndex = geom.index !== null;

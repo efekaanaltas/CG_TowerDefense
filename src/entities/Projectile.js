@@ -22,21 +22,17 @@ export class Projectile {
     }
 
     update(enemies) {
-        // Hareket
         this.mesh.position.addScaledVector(this.direction, this.speed);
 
-        // Menzil Kontrolü
         if (this.mesh.position.distanceTo(this.startPos) > this.stats.range) {
             this.shouldRemove = true;
             return;
         }
 
-        // Çarpışma Kontrolü
         for (const enemy of enemies) {
             if (this.mesh.position.distanceTo(enemy.mesh.position) < 1.0) {
-                // Hasar ver
                 enemy.takeDamage(this.stats.damage, this.stats.element);
-                this.shouldRemove = true; // Mermiyi yok et
+                this.shouldRemove = true;
                 return;
             }
         }

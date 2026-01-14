@@ -13,14 +13,11 @@ export class Building {
         this.mesh.position.set(x * TILE_SIZE, 0.2, z * TILE_SIZE);
         this.mesh.scale.set(scale, scale, scale); 
 
-        // --- ANIMASYON AYARI ---
         this.mixer = null;
         
-        // ResourceManager'da yaptığımız hile sayesinde .animations artık burada erişilebilir
         if (this.mesh.animations && this.mesh.animations.length > 0) {
             this.mixer = new THREE.AnimationMixer(this.mesh);
             
-            // İlk animasyonu bul ve başlat
             const clip = this.mesh.animations[0];
             const action = this.mixer.clipAction(clip);
             action.play();

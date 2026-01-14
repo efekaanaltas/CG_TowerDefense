@@ -1,7 +1,7 @@
 export const toon_fragment = `
 uniform vec3 ambientColor;
 uniform vec3 materialColor;
-uniform vec3 uEmissive; // [NEW]
+uniform vec3 uEmissive;
 
 struct DirLight { vec3 direction; vec3 color; };
 struct SpotLight { vec3 position; vec3 direction; vec3 color; float cutOff; float decay; };
@@ -15,7 +15,6 @@ varying vec3 vWorldPosition;
 void main() {
     vec3 norm = normalize(vNormal);
     
-    // 1. DIRECTIONAL LIGHT (Discrete)
     vec3 lightDir = normalize(dirLight.direction);
     float diff = max(dot(norm, lightDir), 0.0);
     
@@ -27,7 +26,6 @@ void main() {
     
     vec3 dirLightEffect = materialColor * dirLight.color * tone;
 
-    // 2. SPOTLIGHT (Discrete / Banded)
     vec3 spotDirVector = normalize(spotLight.position - vWorldPosition);
     float theta = dot(spotDirVector, normalize(-spotLight.direction));
     
