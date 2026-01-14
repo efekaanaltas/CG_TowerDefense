@@ -1,8 +1,10 @@
 export const phong_fragment = `
+    precision highp float;
+    precision highp int;
+
     uniform sampler2D map;
     uniform sampler2D normalMap;
     uniform sampler2D specularMap;
-    uniform sampler2D displacementMap;
     uniform sampler2D envMap;
     
     uniform float uShininess;
@@ -19,11 +21,13 @@ export const phong_fragment = `
     uniform SpotLight spotLight;
     uniform vec3 ambientColor;
 
-    varying vec2 vUv;
-    varying vec3 vViewPosition; 
-    varying vec3 vNormal;       
-    varying vec3 vWorldPosition;
-    varying vec3 vColor;
+    in vec2 vUv;
+    in vec3 vViewPosition; 
+    in vec3 vNormal;       
+    in vec3 vWorldPosition;
+    in vec3 vColor;
+
+    out vec4 pc_fragColor;
 
     vec2 equirectangularMapping(vec3 dir) {
         vec2 uv = vec2(atan(dir.z, dir.x), asin(dir.y));
@@ -38,9 +42,9 @@ export const phong_fragment = `
         float b = (blend.x + blend.y + blend.z);
         blend /= b;
 
-        vec3 tx = texture2D(normalMap, worldPos.zy * scale).rgb * 2.0 - 1.0;
-        vec3 ty = texture2D(normalMap, worldPos.xz * scale).rgb * 2.0 - 1.0;
-        vec3 tz = texture2D(normalMap, worldPos.xy * scale).rgb * 2.0 - 1.0;
+        vec3 tx = texture(normalMap, worldPos.zy * scale).rgb * 2.0 - 1.0;
+        vec3 ty = texture(normalMap, worldPos.xz * scale).rgb * 2.0 - 1.0;
+        vec3 tz = texture(normalMap, worldPos.xy * scale).rgb * 2.0 - 1.0;
 
         tx.xy *= uNormalScale;
         ty.xy *= uNormalScale;
@@ -59,19 +63,21 @@ export const phong_fragment = `
 
     void main() {
         vec2 coords = vUv; 
-        vec4 textureColor = texture2D(map, coords);
+        
+        vec4 textureColor = texture(map, coords);
         vec3 finalBaseColor = textureColor.rgb * vColor;
         float finalAlpha = textureColor.a * uOpacity;
         if (finalAlpha < uAlphaTest) discard;
 
+        // Triplanar Normal
         vec3 normal = getTriplanarNormal(vWorldPosition, normalize(vNormal), 0.5);
         
         vec3 viewDir = normalize(vViewPosition);
-        float specularStrength = texture2D(specularMap, coords).r;
+        float specularStrength = texture(specularMap, coords).r;
 
         vec3 reflectDir = reflect(-viewDir, normal);
         vec2 envUV = equirectangularMapping(normalize(reflectDir));
-        vec3 envColor = texture2D(envMap, envUV).rgb;
+        vec3 envColor = texture(envMap, envUV).rgb;
         vec3 reflection = envColor * uMetallic;
 
         vec3 ambient = ambientColor * finalBaseColor;
@@ -90,12 +96,12 @@ export const phong_fragment = `
         float dist = length(spotLight.position - vWorldPosition);
         float att = 1.0 / (1.0 + 0.09 * dist + 0.032 * (dist * dist));
         
-        vec3 diffuseSpot = max(dot(normal, spotDir), 0.0) * 10.0*spotLight.color * intensity * att;
+        vec3 diffuseSpot = max(dot(normal, spotDir), 0.0) * 10.0 * spotLight.color * intensity * att;
         vec3 halfwaySpot = normalize(spotDir + viewDir);
-        vec3 specularSpot = 10.0*spotLight.color * pow(max(dot(normal, halfwaySpot), 0.0), uShininess) * specularStrength * intensity * att;
+        vec3 specularSpot = 10.0 * spotLight.color * pow(max(dot(normal, halfwaySpot), 0.0), uShininess) * specularStrength * intensity * att;
 
         vec3 finalColor = ambient + (diffuse + diffuseSpot) * finalBaseColor + (specular + specularSpot) + reflection/2.0 + uEmissive;
 
-        gl_FragColor = vec4(finalColor, finalAlpha);
+        pc_fragColor = vec4(finalColor, finalAlpha);
     }
 `;
