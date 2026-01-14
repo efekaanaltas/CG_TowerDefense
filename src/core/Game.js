@@ -642,13 +642,10 @@ export class Game {
         this.ghostTower.position.set(gridX * TILE_SIZE, 1, gridZ * TILE_SIZE);
         this.ghostTower.visible = true;
 
+        const color = isValid ? 0x00FF00 : 0xFF0000;
         this.ghostTower.traverse((child) => {
-            if (child.isMesh) {
-                if (isValid) {
-                    child.material.color.setHex(0x00FF00);
-                } else {
-                    child.material.color.setHex(0xFF0000);
-                }
+            if (child.isMesh && child.material && child.material.color) {
+                child.material.color.setHex(color);
             }
         });
     }
@@ -681,8 +678,7 @@ onMouseMove(e) {
                     return Math.round(tPos.x / TILE_SIZE) === gridX && Math.round(tPos.z / TILE_SIZE) === gridZ;
                 });
 
-                const isValid = tileType === 1 && !existingTower && this.cash >= typeInfo.cost;
-                
+                const isValid = (tileType === 1 && !existingTower && this.cash >= typeInfo.cost);
                 this.updateGhostTower(gridX, gridZ, isValid);
             } else {
                 if (this.ghostTower) this.ghostTower.visible = false;
@@ -1189,7 +1185,7 @@ onMouseMove(e) {
                 hp: baseStats.hp * multiplier
             };
 
-            const enemy = new Enemy(this.scene, finalStats);
+            const enemy = new Enemy(this.scene, finalStats, this.dangerPoints);
             this.enemies.push(enemy);
         }
     }

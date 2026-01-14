@@ -2,10 +2,11 @@ import * as THREE from 'three';
 import { TILE_SIZE, WAYPOINTS } from '../data/Constants.js';
 
 export class Enemy {
-    constructor(scene, typeDef) {
+    constructor(scene, typeDef, dangerPoints) {
         this.scene = scene;
         this.mesh = this.createMesh(typeDef.color);
-        
+        this.dangerPoints = dangerPoints;
+
         const startNode = WAYPOINTS[0];
         this.mesh.position.set(startNode.x * TILE_SIZE, 1, startNode.z * TILE_SIZE);
         
@@ -62,7 +63,14 @@ export class Enemy {
 
     update() {
         const targetIndex = this.currentPointIndex + 1;
-        
+        if(this.weakness === 'fire' && this.dangerPoints.points[targetIndex].dangerFire > 5){
+            //choose alternative path or slow down
+            console.log("Ice Golem passing through high fire danger!");
+        }
+        else if(this.weakness === 'ice' && this.dangerPoints.points[targetIndex].dangerIce > 5){
+            //choose alternative path or slow down
+            console.log("Fire Imp passing through high ice danger!");
+        }
         if (targetIndex >= WAYPOINTS.length) {
             this.reachedGoal = true;
             return;
