@@ -52,6 +52,14 @@ export class Game {
         this.endCamPos = new THREE.Vector3();
         this.endTarget = new THREE.Vector3();
 
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.heldObject = null;       // Currently held Interactable
+        this.holdDistance = 5;        // How far in front of camera to hold
+        this.rotateAxis = 'y';        // Current rotation axis ('x', 'y', 'z')
+        this.rotateSpeed = 0.05;
+        this.pickupRadius = 1.5;      // Physics radius for detection (optional visual aid)
+
         this.init();
     }
 
@@ -102,7 +110,7 @@ export class Game {
         this.controls.enableZoom = true; // Zoom'a izin ver
         this.controls.minDistance = 5;   // En fazla ne kadar yaklaşabilir
         this.controls.maxDistance = 30;  // En fazla ne kadar uzaklaşabilir
-        this.controls.maxPolarAngle = Math.PI / 2; // Yerin altına girmeyi engelle
+        this.controls.maxPolarAngle = Math.PI / 2.5; // Yerin altına girmeyi engelle
 
         // Lights
         const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
@@ -122,17 +130,85 @@ export class Game {
         // World Generation
         this.createLevel();
         this.createCreditsArea();
-        
+
         // Entities
         this.player = new Player(this.scene, this.resourceManager);
+
+        this.spotlightInteractable = this.interactables.find(i => i.type === 'Spotlight');
+        
+        if (this.spotlightInteractable) {
+            // Optional: Visual bulb
+            const bulb = new THREE.Mesh(
+                new THREE.SphereGeometry(0.2), 
+                new THREE.MeshBasicMaterial({color: 0xffaa00})
+            );
+            bulb.position.y = 1.0;
+            this.spotlightInteractable.mesh.add(bulb);
+        }
 
         // Events
         window.addEventListener('resize', () => this.onWindowResize());
         window.addEventListener('keydown', (e) => this.onKeyDown(e));
         window.addEventListener('keyup', (e) => this.keys[e.key.toLowerCase()] = false);
 
+        window.addEventListener('mousemove', (e) => this.onMouseMove(e));
+        window.addEventListener('mousedown', (e) => this.onMouseDown(e));
+
         this.updateUI();
 
+    }
+
+    onMouseMove(event) {
+        // Normalize mouse position (-1 to +1)
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    }
+
+    onMouseDown(event) {
+        if (this.gameState !== "PLAYING" || this.isPaused) return;
+
+        if (event.button === 0) { // Left Click
+            if (this.heldObject) {
+                // Drop Object
+                console.log("Dropped:", this.heldObject.type);
+                this.heldObject = null;
+            } else {
+                // Try Pickup
+                this.attemptPickup();
+            }
+        }
+    }
+
+    attemptPickup() {
+        // 1. Update Raycaster
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // 2. Get meshes of all interactables
+        // Note: interactables array contains classes, we need their meshes
+        // Some interactables might be Groups (GLTF), so we raycast against the group or children
+        const interactableMeshes = this.interactables.map(i => i.mesh);
+
+        // 3. Intersect
+        const intersects = this.raycaster.intersectObjects(interactableMeshes, true); // true = recursive
+
+        if (intersects.length > 0) {
+            // Find the first hit that belongs to an Interactable
+            const hit = intersects[0];
+            
+            // Check distance (don't pick up things across the map)
+            if (hit.distance > 15) return;
+
+            // Traverse up to find the object with userData.parentInteractable
+            let targetMesh = hit.object;
+            while(targetMesh && !targetMesh.userData.parentInteractable) {
+                targetMesh = targetMesh.parent;
+            }
+
+            if (targetMesh && targetMesh.userData.parentInteractable) {
+                this.heldObject = targetMesh.userData.parentInteractable;
+                console.log("Picked up:", this.heldObject.type);
+            }
+        }
     }
 
     injectUI() {
@@ -265,17 +341,26 @@ export class Game {
                 <div style="font-weight: bold; color: #aaa;">SPACE</div>
                 <div>Build / Sell Tower</div>
 
+                <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
+                <div>Select Tower Type / Pick Up Toy</div>
+                
+                <div style="font-weight: bold; color: #aaa;">Mouse Right</div>
+                <div>Rotate Camera</div>
+
                 <div style="font-weight: bold; color: #aaa;">M</div>
                 <div>Show / Hide Credits</div>
 
                 <div style="font-weight: bold; color: #aaa;">H</div>
                 <div>Show / Hide Help</div>
                 
-                <div style="font-weight: bold; color: #aaa;">Mouse Left</div>
-                <div>Select Tower Type</div>
-                
-                <div style="font-weight: bold; color: #aaa;">Mouse Right</div>
-                <div>Rotate Camera</div>
+                <div style="font-weight: bold; color: #aaa;">P</div>
+                <div>Switch Shaders</div>
+
+                <div style="font-weight: bold; color: #aaa;">Q, E</div>
+                <div>Rotate Toy</div>
+
+                <div style="font-weight: bold; color: #aaa;">R</div>
+                <div>Change Toy Rotation Axis</div>
             </div>
 
             <p style="margin-top: 40px; font-style: italic; color: #888;">Press 'H' to Resume Game</p>
@@ -406,6 +491,18 @@ export class Game {
         // Normal oyun akışında Space'e basılırsa
         if (key === ' ') {
             this.handleSpaceInteraction();
+        }
+
+        if (key === 'p') {
+            this.shaderManager.toggleShaders();
+        }
+
+        if (key === 'r') {
+            if (this.rotateAxis === 'x') this.rotateAxis = 'y';
+            else if (this.rotateAxis === 'y') this.rotateAxis = 'z';
+            else this.rotateAxis = 'x';
+            console.log("Rotation Axis:", this.rotateAxis);
+            this.updateUI(); // Optional: display current axis
         }
 
         if (key === 'h') {
@@ -556,17 +653,17 @@ export class Game {
         }
 
         const testObjects = [
-        { x: 2, y: 1, z: 10, typeIndex: 0 },
-        { x: 3, y: 1, z: 10, typeIndex: 1 },
-        { x: 4, y: 1, z: 10, typeIndex: 2 }
-    ];
+            { x: 2, y: 1, z: 10, typeIndex: 0 },
+            { x: 3, y: 1, z: 10, typeIndex: 1 },
+            { x: 4, y: 1, z: 10, typeIndex: 2 },
+            { x: 5, y: 1, z: 10, typeIndex: 3 } // [NEW] Spawn the Spotlight object
+        ];
 
-    testObjects.forEach(obj => {
-        const typeDef = INTERACTABLE_TYPES[obj.typeIndex];
-        const interactable = new Interactable(this.scene, this.resourceManager, typeDef, obj.x, obj.y, obj.z);
-        this.interactables.push(interactable);
-    });
-
+        testObjects.forEach(obj => {
+            const typeDef = INTERACTABLE_TYPES[obj.typeIndex];
+            const interactable = new Interactable(this.scene, this.resourceManager, typeDef, obj.x, obj.y, obj.z);
+            this.interactables.push(interactable);
+        });
     }
 
     createCreditsArea() {
@@ -608,6 +705,54 @@ export class Game {
         const delta = this.clock.getDelta(); // Three.Clock kullanıyorsan
         const now = Date.now();
 
+// --- HELD OBJECT LOGIC ---
+        if (this.heldObject) {
+            const playerPos = this.player.mesh.position;
+            const playerRot = this.player.mesh.rotation.y;
+            
+            // [NEW] Get Camera Pitch
+            const cameraDir = new THREE.Vector3();
+            this.camera.getWorldDirection(cameraDir);
+            
+            // Calculate offsets
+            const offsetX = Math.sin(playerRot) * this.holdDistance;
+            const offsetZ = Math.cos(playerRot) * this.holdDistance;
+            
+            // [NEW] Apply vertical movement based on looking up/down
+            // cameraDir.y is ~1 when looking up, ~-1 when looking down
+            const verticalOffset = cameraDir.y * 3.0; 
+
+            const targetPos = new THREE.Vector3(
+                playerPos.x + offsetX,
+                playerPos.y + 5 + verticalOffset, // Base height + Camera pitch
+                playerPos.z + offsetZ
+            );
+            
+            this.heldObject.mesh.position.lerp(targetPos, 0.2);
+
+            // Rotation Logic (Q/E)
+            if (this.keys['q']) this.heldObject.rotate(this.rotateAxis, -this.rotateSpeed);
+            if (this.keys['e']) this.heldObject.rotate(this.rotateAxis, this.rotateSpeed);
+        }
+
+        if (this.spotlightInteractable) {
+            const mesh = this.spotlightInteractable.mesh;
+            
+            // [FIX 1] Offset the light source UP so it's not inside the floor.
+            // (Assumes the mesh pivot is at the bottom/feet)
+            const sourcePos = mesh.position.clone().add(new THREE.Vector3(0, 2.5, 0));
+            
+            // [FIX 2] Use a "Forward-Down" vector. 
+            // (0, 0, 1) is straight forward (invisible on flat ground).
+            // (0, -1, 0) is straight down (doesn't rotate with Q/E properly).
+            // (0, -1, 1) points 45 degrees down-forward, perfect for a spotlight.
+            const localDir = new THREE.Vector3(0, -1, 0).normalize();
+            
+            const worldDir = localDir.applyQuaternion(mesh.quaternion).normalize();
+            
+            this.shaderManager.updateSpotLight(sourcePos, worldDir);
+        }
+
         // --- TRANSITION STATE ---
         if (this.gameState === "TRANSITION") {
             this.transitionProgress += delta / this.transitionDuration; // 2 saniye sürsün
@@ -622,6 +767,7 @@ export class Game {
                     this.isPaused = false;
                     this.controls.enabled = true;
                     this.controls.target.copy(this.endTarget);
+                    this.shaderManager.update(now);
                 } else {
                     this.controls.enabled = false; // Oyuncu kamerayı oynatamasın
                 }
@@ -680,10 +826,6 @@ export class Game {
             
             // Target değiştiği için update şart
             this.controls.update(); 
-            
-            if (this.shaderManager) {
-                this.shaderManager.update(now); 
-            }
             
             this.renderer.render(this.scene, this.camera);
             return;
@@ -781,6 +923,7 @@ export class Game {
             }
         }
 
+        this.shaderManager.update(now);
         this.renderer.render(this.scene, this.camera);
     }
 

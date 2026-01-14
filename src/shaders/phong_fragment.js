@@ -7,10 +7,10 @@ export const phong_fragment = `
     
     uniform float uShininess;
     uniform float uMetallic;
-    uniform float uOpacity;         // [NEW] Global Opacity
-    uniform float uAlphaTest;       // [NEW] Cutoff threshold
+    uniform float uOpacity;         
+    uniform float uAlphaTest;
+    uniform float uNormalScale; // [NEW]
 
-    // ... Lights Structs (Same as before) ...
     struct DirLight { vec3 direction; vec3 color; };
     struct SpotLight { vec3 position; vec3 direction; vec3 color; float cutOff; float decay; };
     uniform DirLight dirLight;
@@ -18,22 +18,53 @@ export const phong_fragment = `
     uniform vec3 ambientColor;
 
     varying vec2 vUv;
-    varying vec3 vViewPosition;
-    varying vec3 vNormal;
-    varying vec3 vTangent;
-    varying vec3 vBitangent;
+    varying vec3 vViewPosition; 
+    varying vec3 vNormal;       
     varying vec3 vWorldPosition;
     varying vec3 vColor;
 
     vec2 equirectangularMapping(vec3 dir) {
         vec2 uv = vec2(atan(dir.z, dir.x), asin(dir.y));
-        uv *= vec2(0.1591, 0.3183); // inv(2*PI), inv(PI)
+        uv *= vec2(0.1591, 0.3183); 
         uv += 0.5;
         return uv;
     }
 
+    vec3 getTriplanarNormal(vec3 worldPos, vec3 surfNormal, float scale) {
+        // 1. Blending Weights
+        vec3 blend = abs(surfNormal);
+        blend = pow(blend, vec3(4.0)); 
+        float b = (blend.x + blend.y + blend.z);
+        blend /= b;
+
+        // 2. Sample Normal Maps
+        vec3 tx = texture2D(normalMap, worldPos.zy * scale).rgb * 2.0 - 1.0;
+        vec3 ty = texture2D(normalMap, worldPos.xz * scale).rgb * 2.0 - 1.0;
+        vec3 tz = texture2D(normalMap, worldPos.xy * scale).rgb * 2.0 - 1.0;
+
+        // [NEW] Apply Normal Strength Scaling
+        // Multiply X and Y (perturbations) by the scale factor.
+        // Z (the dominant outward vector) stays the same.
+        tx.xy *= uNormalScale;
+        ty.xy *= uNormalScale;
+        tz.xy *= uNormalScale;
+
+        // Re-normalize to ensure correct vector length after scaling
+        tx = normalize(tx);
+        ty = normalize(ty);
+        tz = normalize(tz);
+
+        // 3. Swizzle to World Axes
+        vec3 nx = vec3(tx.z, tx.y, tx.x); 
+        vec3 ny = vec3(ty.x, ty.z, ty.y); 
+        vec3 nz = vec3(tz.x, tz.y, tz.z);
+
+        // 4. Blend
+        return normalize(nx * blend.x + ny * blend.y + nz * blend.z);
+    }
+
     void main() {
-        // ... (Keep Parallax, Alpha, Normal Map logic exactly as before) ...
+        // ... (Rest of main function remains unchanged) ...
         vec2 coords = vUv; 
         vec4 textureColor = texture2D(map, coords);
         vec3 finalBaseColor = textureColor.rgb * vColor;
@@ -41,57 +72,39 @@ export const phong_fragment = `
         if (finalAlpha < uAlphaTest) discard;
 
         // Normal Mapping
-        vec3 viewDir = normalize(vViewPosition); // Vector TO camera
-        mat3 tbn = mat3(normalize(vTangent), normalize(vBitangent), normalize(vNormal));
-        vec3 normalMapVal = texture2D(normalMap, vWorldPosition.xz).rgb * 2.0 - 1.0;
-        vec3 normal = normalize(tbn * normalMapVal);
-
-        // Specular Map (controls both shininess and reflection strength)
+        vec3 normal = getTriplanarNormal(vWorldPosition, normalize(vNormal), 0.5);
+        
+        // ... (Lighting calculations continue as before) ...
+        vec3 viewDir = normalize(vViewPosition);
         float specularStrength = texture2D(specularMap, coords).r;
 
-        // --- [NEW] ENVIRONMENT REFLECTION LOGIC ---
-        
-        // 1. Calculate Reflection Vector (from camera hitting surface and bouncing off)
-        // Note: reflect() expects incident vector (Camera -> Surface), so we use -viewDir
         vec3 reflectDir = reflect(-viewDir, normal);
-
-        // 2. Convert 3D vector to 2D UVs for the skybox texture
         vec2 envUV = equirectangularMapping(normalize(reflectDir));
-
-        // 3. Sample the skybox
         vec3 envColor = texture2D(envMap, envUV).rgb;
+        vec3 reflection = envColor * uMetallic;
 
-        // 4. Mix Reflection
-        // We use uMetallic * specularStrength to mask where reflections appear.
-        // (e.g. Dirt doesn't reflect, Metal does)
-        vec3 reflection = envColor * uMetallic;// * specularStrength;
-        
-        // ------------------------------------------
-
-        // Lighting (Blinn-Phong)
         vec3 ambient = ambientColor * finalBaseColor;
 
         vec3 lightDir = normalize(dirLight.direction);
         float diff = max(dot(normal, lightDir), 0.0);
         vec3 diffuse = diff * dirLight.color;
+        
         vec3 halfwayDir = normalize(lightDir + viewDir);
         float spec = pow(max(dot(normal, halfwayDir), 0.0), uShininess);
         vec3 specular = dirLight.color * spec * specularStrength;
 
-        // Spot Light (Keep existing logic...)
         vec3 spotDir = normalize(spotLight.position - vWorldPosition);
         float theta = dot(spotDir, normalize(-spotLight.direction));
         float intensity = clamp((theta - spotLight.cutOff) / (1.0 - spotLight.cutOff), 0.0, 1.0);
         float dist = length(spotLight.position - vWorldPosition);
         float att = 1.0 / (1.0 + 0.09 * dist + 0.032 * (dist * dist));
-        vec3 diffuseSpot = max(dot(normal, spotDir), 0.0) * spotLight.color * intensity * att;
+        
+        vec3 diffuseSpot = max(dot(normal, spotDir), 0.0) * 10.0*spotLight.color * intensity * att;
         vec3 halfwaySpot = normalize(spotDir + viewDir);
-        vec3 specularSpot = spotLight.color * pow(max(dot(normal, halfwaySpot), 0.0), uShininess) * specularStrength * intensity * att;
+        vec3 specularSpot = 10.0*spotLight.color * pow(max(dot(normal, halfwaySpot), 0.0), uShininess) * specularStrength * intensity * att;
 
-        // COMBINE
-        // Add reflection to the final calculation
-        vec3 finalColor = ambient + (diffuse + diffuseSpot) * finalBaseColor + (specular + specularSpot) + reflection;
+        vec3 finalColor = ambient + (diffuse + diffuseSpot) * finalBaseColor + (specular + specularSpot) + reflection/2.0;
 
         gl_FragColor = vec4(finalColor, finalAlpha);
     }
-    `;
+`;
