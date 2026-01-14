@@ -10,6 +10,7 @@ import { Projectile } from '../entities/Projectile.js';
 import { Interactable } from '../entities/Interactable.js';
 import { ResourceManager } from './ResourceManager.js';
 import { ShaderManager } from './ShaderManager.js';
+import { DangerPoints } from '../entities/DangerPoints.js';
 
 export class Game {
     constructor() {
@@ -40,6 +41,7 @@ export class Game {
         this.towers = [];
         this.projectiles = [];
         this.interactables = [];
+        this.dangerPoints = new DangerPoints(this.towers);
 
         this.scene = new THREE.Scene();
         this.shaderManager = new ShaderManager(this.scene);
@@ -1061,6 +1063,7 @@ onMouseMove(e) {
             this.towers.push(tower);
             this.towerStats[typeInfo.name]++;
             this.updateUI();
+            this.dangerPoints.calculateAllDangerPoints();
         } else {
             console.log("Yetersiz para!");
         }
