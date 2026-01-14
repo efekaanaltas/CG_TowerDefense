@@ -12,6 +12,10 @@ export class ShaderManager {
 
         const texLoader = new THREE.TextureLoader();
         this.globalNormalMap = texLoader.load('/assets/normal.jpg');
+        
+        // Ensure Normal Map is treated as Data (Linear)
+        this.globalNormalMap.colorSpace = THREE.NoColorSpace; 
+        
         this.globalNormalMap.wrapS = THREE.RepeatWrapping;
         this.globalNormalMap.wrapT = THREE.RepeatWrapping;
         
@@ -57,8 +61,7 @@ export class ShaderManager {
                 if (mat.userData.originalColor) {
                     mat.uniforms.materialColor.value.copy(mat.userData.originalColor);
                 }
-            } 
-            
+            }
             mat.needsUpdate = true;
         });
     }
@@ -119,7 +122,8 @@ export class ShaderManager {
             vertexColors: hasVertexColors,
             defines: { USE_COLOR: hasVertexColors },
             transparent: isTransparent,
-            side: THREE.DoubleSide
+            side: THREE.DoubleSide,
+            glslVersion: THREE.GLSL3 
         });
         
         newMaterial.userData.originalColor = originalColor;

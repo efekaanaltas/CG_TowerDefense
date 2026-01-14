@@ -1,4 +1,7 @@
 export const toon_fragment = `
+precision highp float;
+precision highp int;
+
 uniform vec3 ambientColor;
 uniform vec3 materialColor;
 uniform vec3 uEmissive;
@@ -9,8 +12,10 @@ struct SpotLight { vec3 position; vec3 direction; vec3 color; float cutOff; floa
 uniform DirLight dirLight;
 uniform SpotLight spotLight;
 
-varying vec3 vNormal;
-varying vec3 vWorldPosition;
+in vec3 vNormal;
+in vec3 vWorldPosition;
+
+out vec4 pc_fragColor;
 
 void main() {
     vec3 norm = normalize(vNormal);
@@ -46,8 +51,8 @@ void main() {
         spotEffect = spotLight.color * spotTone * 2.0; 
     }
 
-    // [UPDATED] Added uEmissive
     vec3 finalColor = (ambientColor * materialColor) + dirLightEffect + spotEffect + uEmissive;
-    gl_FragColor = vec4(2.0*finalColor, 1.0);
+    
+    pc_fragColor = vec4(2.0*finalColor, 1.0);
 }
 `;
